@@ -1,5 +1,6 @@
 from pathlib import Path
-from tkinter import Tk, Listbox, Button, Label, filedialog, Frame, Entry, StringVar
+from tkinter import Tk, Listbox, filedialog, StringVar
+from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 import logging
 
@@ -43,31 +44,32 @@ def main():
     root.grid_rowconfigure(1, weight=0)
     root.grid_columnconfigure(0, weight=1)
 
-    main_frame = Frame(root)
+    main_frame = ttk.Frame(root)
     main_frame.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
-
-    listbox = Listbox(main_frame, width=60, height=8, selectmode="extended")
-    listbox.pack(fill="x", padx=5, pady=5)
+    main_frame.grid_rowconfigure(1, weight=1)
+    main_frame.grid_columnconfigure(0, weight=1)
 
     output_var = StringVar()
-    txt_output = Entry(
+    txt_output = ttk.Entry(
         main_frame,
         textvariable=output_var,
         state="readonly",
-        readonlybackground="white",
         width=60,
     )
-    txt_output.pack(fill="x", padx=5, pady=5)
+    txt_output.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
 
-    lbl_count = Label(main_frame)
-    lbl_count.pack(fill="x", padx=5, pady=5)
+    listbox = Listbox(main_frame, width=60, height=8, selectmode="extended")
+    listbox.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
 
-    bottom_frame = Frame(root)
+    lbl_count = ttk.Label(main_frame)
+    lbl_count.grid(row=2, column=0, sticky="ew", padx=5, pady=5)
+
+    bottom_frame = ttk.Frame(root)
     bottom_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
     bottom_frame.grid_rowconfigure(1, weight=1)
     bottom_frame.grid_columnconfigure(0, weight=1)
 
-    btn_frame = Frame(bottom_frame)
+    btn_frame = ttk.Frame(bottom_frame)
     btn_frame.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
 
     log_panel = ScrolledText(bottom_frame, height=10, state="disabled")
@@ -129,11 +131,13 @@ def main():
                 return
         logging.info("Completed: created %d files", len(saved))
 
-    btn_add = Button(btn_frame, text="Add folder", command=add_folder)
-    btn_remove = Button(btn_frame, text="Remove selected", command=remove_selected)
-    btn_output = Button(btn_frame, text="Output folder destination", command=select_output)
-    btn_run = Button(btn_frame, text="Run", command=run)
-    btn_exit = Button(btn_frame, text="Exit", command=root.destroy)
+    btn_add = ttk.Button(btn_frame, text="Add folder", command=add_folder)
+    btn_remove = ttk.Button(btn_frame, text="Remove selected", command=remove_selected)
+    btn_output = ttk.Button(
+        btn_frame, text="Output folder destination", command=select_output
+    )
+    btn_run = ttk.Button(btn_frame, text="Run", command=run)
+    btn_exit = ttk.Button(btn_frame, text="Exit", command=root.destroy)
 
     btn_add.pack(side="left", padx=5, pady=5)
     btn_remove.pack(side="left", padx=5, pady=5)
