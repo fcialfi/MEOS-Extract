@@ -46,8 +46,11 @@ def main():
 
     main_frame = ttk.Frame(root)
     main_frame.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
-    main_frame.grid_rowconfigure(1, weight=1)
+    main_frame.grid_rowconfigure(3, weight=1)
     main_frame.grid_columnconfigure(0, weight=1)
+
+    style = ttk.Style()
+    style.configure("Caption.TLabel", font=("Segoe UI", 10, "bold"))
 
     output_var = StringVar()
     txt_output = ttk.Entry(
@@ -56,13 +59,17 @@ def main():
         state="readonly",
         width=60,
     )
-    txt_output.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
+    lbl_output = ttk.Label(main_frame, text="Output folder:", style="Caption.TLabel")
+    lbl_output.grid(row=0, column=0, sticky="w", padx=5, pady=(0, 2))
+    txt_output.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
 
+    lbl_input = ttk.Label(main_frame, text="Input folders:", style="Caption.TLabel")
+    lbl_input.grid(row=2, column=0, sticky="w", padx=5, pady=(10, 2))
     listbox = Listbox(main_frame, width=60, height=8, selectmode="extended")
-    listbox.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+    listbox.grid(row=3, column=0, sticky="nsew", padx=5, pady=5)
 
     lbl_count = ttk.Label(main_frame)
-    lbl_count.grid(row=2, column=0, sticky="ew", padx=5, pady=5)
+    lbl_count.grid(row=4, column=0, sticky="ew", padx=5, pady=5)
 
     bottom_frame = ttk.Frame(root)
     bottom_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
