@@ -12,7 +12,7 @@ handlers = [logging.StreamHandler()]
 try:
     handlers.insert(0, logging.FileHandler(LOG_PATH))
 except OSError as exc:  # pragma: no cover - log fallback
-    print(f"Impossibile scrivere il file di log: {exc}")
+    print(f"Cannot write log file: {exc}")
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -69,7 +69,7 @@ def main():
     def update_count():
         n = listbox.size()
         lbl_count.config(
-            text=f"{n} cartella{'e' if n != 1 else ''} in coda"
+            text=f"{n} folder{'s' if n != 1 else ''} queued"
         )
 
     output_dir = {"path": None}
@@ -80,7 +80,7 @@ def main():
             lbl_input.config(text=listbox.get(sel[0]))
 
     def add_folder():
-        folder = filedialog.askdirectory(title="Seleziona cartella")
+        folder = filedialog.askdirectory(title="Select folder")
         if folder:
             listbox.insert("end", folder)
             lbl_input.config(text=folder)
@@ -93,14 +93,14 @@ def main():
         update_count()
 
     def select_output():
-        folder = filedialog.askdirectory(title="Seleziona directory di output")
+        folder = filedialog.askdirectory(title="Select output directory")
         if folder:
             output_dir["path"] = Path(folder)
             lbl_output.config(text=folder)
 
     def run():
         if output_dir["path"] is None:
-            logging.warning("Directory di output non selezionata")
+            logging.warning("Output directory not selected")
             return
         saved = []
         for i in range(listbox.size()):
@@ -108,18 +108,18 @@ def main():
             report = folder / INPUT_HTML.name
             try:
                 out = process_html(report, output_dir["path"])
-                logging.info("Salvato: %s", out)
+                logging.info("Saved: %s", out)
                 saved.append(out)
             except Exception:
-                logging.exception("Errore elaborando %s", folder)
+                logging.exception("Error processing %s", folder)
                 return
-        logging.info("Completato: creati %d file", len(saved))
+        logging.info("Completed: created %d files", len(saved))
 
     listbox.bind("<<ListboxSelect>>", on_select)
 
-    btn_add = Button(btn_frame, text="Aggiungi cartella", command=add_folder)
-    btn_remove = Button(btn_frame, text="Rimuovi selezionata", command=remove_selected)
-    btn_output = Button(btn_frame, text="Seleziona output", command=select_output)
+    btn_add = Button(btn_frame, text="Add folder", command=add_folder)
+    btn_remove = Button(btn_frame, text="Remove selected", command=remove_selected)
+    btn_output = Button(btn_frame, text="Output folder destination", command=select_output)
     btn_run = Button(btn_frame, text="Run", command=run)
     btn_exit = Button(btn_frame, text="Exit", command=root.destroy)
 
