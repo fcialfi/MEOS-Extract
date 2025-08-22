@@ -46,7 +46,8 @@ def main():
     paned.grid(row=0, column=0, sticky="nsew")
 
     main_frame = ttk.Frame(paned)
-    paned.add(main_frame, weight=3, minsize=120)
+    paned.add(main_frame, weight=3)
+    paned.paneconfigure(main_frame, minsize=120)
     main_frame.grid_columnconfigure(0, weight=1)
     for r in range(3):
         main_frame.grid_rowconfigure(r, weight=1, minsize=30)
@@ -81,7 +82,8 @@ def main():
     btn_frame.grid(row=5, column=0, sticky="ew", padx=5, pady=5)
 
     log_frame = ttk.Frame(paned)
-    paned.add(log_frame, weight=1, minsize=80)
+    paned.add(log_frame, weight=1)
+    paned.paneconfigure(log_frame, minsize=80)
     log_frame.grid_rowconfigure(0, weight=1)
     log_frame.grid_columnconfigure(0, weight=1)
     log_panel = Text(log_frame, state="disabled")
