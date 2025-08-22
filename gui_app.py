@@ -45,10 +45,10 @@ def main():
     listbox = Listbox(main_frame, width=60, height=8, selectmode="extended")
     listbox.pack(fill="x")
 
-    lbl_input = Label(main_frame, anchor="w")
+    lbl_input = Label(main_frame, anchor="w", text="Input folder:")
     lbl_input.pack(fill="x")
 
-    lbl_output = Label(main_frame, anchor="w")
+    lbl_output = Label(main_frame, anchor="w", text="Output folder:")
     lbl_output.pack(fill="x")
 
     lbl_count = Label(main_frame)
@@ -77,13 +77,13 @@ def main():
     def on_select(event):
         sel = listbox.curselection()
         if sel:
-            lbl_input.config(text=listbox.get(sel[0]))
+            lbl_input.config(text=f"Input folder: {listbox.get(sel[0])}")
 
     def add_folder():
         folder = filedialog.askdirectory(title="Select folder")
         if folder:
             listbox.insert("end", folder)
-            lbl_input.config(text=folder)
+            lbl_input.config(text=f"Input folder: {folder}")
             update_count()
 
     def remove_selected():
@@ -96,7 +96,7 @@ def main():
         folder = filedialog.askdirectory(title="Select output directory")
         if folder:
             output_dir["path"] = Path(folder)
-            lbl_output.config(text=folder)
+            lbl_output.config(text=f"Output folder: {folder}")
 
     def run():
         if output_dir["path"] is None:
