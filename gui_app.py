@@ -52,7 +52,7 @@ def main():
     lbl_input = Label(main_frame, anchor="w", text="Input folder:")
     lbl_input.pack(fill="x", padx=5, pady=5)
 
-    lbl_output = Label(main_frame, anchor="w", text="Output folder:")
+    lbl_output = Label(main_frame, anchor="w", text="Output folder: <none>")
     lbl_output.pack(fill="x", padx=5, pady=5)
 
     lbl_count = Label(main_frame)
