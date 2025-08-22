@@ -28,7 +28,7 @@ import logging
 import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
-from openpyxl.chart import LineChart, Reference
+from openpyxl.chart import ScatterChart, Reference, Series
 
 
 INPUT_HTML = Path("report.html")  # cambia qui se vuoi un altro nome/percorso
@@ -503,6 +503,14 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
             df = map_x_to_time(df, start_dt, stop_dt)
             df = map_y_from_ticks(df, ticks, colname=ycol)
 
+            time_col = (
+                "time_HH:MM:SS"
+                if "time_HH:MM:SS" in df.columns
+                else "time_iso_utc"
+            )
+            if not df.empty:
+                df[time_col] = pd.to_datetime(df[time_col])
+
             sheet = safe_sheet_name(title)
             if df.empty:
                 pd.DataFrame([{"note": "nessun dato estratto"}]).to_excel(
@@ -517,21 +525,28 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
                 ws_data = wr.sheets[sheet]
                 csheet = safe_sheet_name(title + " chart")
                 # create chart sheet after data sheet (tick sheet will be added later)
-                ws_chart = wb.create_sheet(csheet)
+                ws_chart = wb.create_sheet(
+                    csheet, index=wb.sheetnames.index(ws_data.title) + 1
+                )
                 wr.sheets[csheet] = ws_chart
 
-                chart = LineChart()
+                chart = ScatterChart()
                 chart.title = title
-                x_idx = (
-                    df.columns.get_loc("time_HH:MM:SS") + 1
-                    if "time_HH:MM:SS" in df.columns
-                    else df.columns.get_loc("time_iso_utc") + 1
-                )
+                chart.x_axis.title = "Time"
+                chart.y_axis.title = ycol
+                chart.x_axis.number_format = "hh:mm:ss"
+                x_idx = df.columns.get_loc(time_col) + 1
                 y_idx = df.columns.get_loc(ycol) + 1
-                cats = Reference(ws_data, min_col=x_idx, min_row=2, max_row=len(df) + 1)
-                data_ref = Reference(ws_data, min_col=y_idx, min_row=1, max_row=len(df) + 1)
-                chart.add_data(data_ref, titles_from_data=True)
-                chart.set_categories(cats)
+                cat_ref = Reference(
+                    ws_data, min_col=x_idx, min_row=2, max_row=len(df) + 1
+                )
+                data_ref = Reference(
+                    ws_data, min_col=y_idx, min_row=1, max_row=len(df) + 1
+                )
+                series = Series(
+                    values=data_ref, xvalues=cat_ref, title_from_data=True
+                )
+                chart.series.append(series)
                 ws_chart.add_chart(chart, "A1")
 
             # Ticks in foglio dedicato
