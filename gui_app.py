@@ -1,7 +1,6 @@
 from pathlib import Path
-from tkinter import Tk, Listbox, filedialog, StringVar
+from tkinter import Tk, Listbox, filedialog, StringVar, Text
 from tkinter import ttk
-from tkinter.scrolledtext import ScrolledText
 import logging
 
 from Extract_all_charts import process_html
@@ -41,13 +40,17 @@ def main():
     root.geometry("600x300")
     root.minsize(600, 300)
     root.grid_rowconfigure(0, weight=1)
-    root.grid_rowconfigure(1, weight=0)
     root.grid_columnconfigure(0, weight=1)
 
-    main_frame = ttk.Frame(root)
-    main_frame.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
-    main_frame.grid_rowconfigure(3, weight=1)
+    paned = ttk.PanedWindow(root, orient="vertical")
+    paned.grid(row=0, column=0, sticky="nsew")
+
+    main_frame = ttk.Frame(paned)
+    paned.add(main_frame, weight=3, minsize=120)
     main_frame.grid_columnconfigure(0, weight=1)
+    for r in range(3):
+        main_frame.grid_rowconfigure(r, weight=1, minsize=30)
+    main_frame.grid_rowconfigure(3, weight=3)
 
     style = ttk.Style()
     style.configure("Caption.TLabel", font=("Segoe UI", 10, "bold"))
@@ -66,21 +69,26 @@ def main():
     lbl_input = ttk.Label(main_frame, text="Input folders:", style="Caption.TLabel")
     lbl_input.grid(row=2, column=0, sticky="w", padx=5, pady=(10, 2))
     listbox = Listbox(main_frame, width=60, height=8, selectmode="extended")
-    listbox.grid(row=3, column=0, sticky="nsew", padx=5, pady=5)
+    listbox.grid(row=3, column=0, sticky="nsew", padx=(5, 0), pady=5)
+    list_scroll = ttk.Scrollbar(main_frame, orient="vertical", command=listbox.yview)
+    list_scroll.grid(row=3, column=1, sticky="ns", padx=(0, 5), pady=5)
+    listbox.configure(yscrollcommand=list_scroll.set)
 
     lbl_count = ttk.Label(main_frame)
     lbl_count.grid(row=4, column=0, sticky="ew", padx=5, pady=5)
 
-    bottom_frame = ttk.Frame(root)
-    bottom_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
-    bottom_frame.grid_rowconfigure(1, weight=1)
-    bottom_frame.grid_columnconfigure(0, weight=1)
+    btn_frame = ttk.Frame(main_frame)
+    btn_frame.grid(row=5, column=0, sticky="ew", padx=5, pady=5)
 
-    btn_frame = ttk.Frame(bottom_frame)
-    btn_frame.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
-
-    log_panel = ScrolledText(bottom_frame, height=10, state="disabled")
-    log_panel.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+    log_frame = ttk.Frame(paned)
+    paned.add(log_frame, weight=1, minsize=80)
+    log_frame.grid_rowconfigure(0, weight=1)
+    log_frame.grid_columnconfigure(0, weight=1)
+    log_panel = Text(log_frame, state="disabled")
+    log_panel.grid(row=0, column=0, sticky="nsew", padx=(5, 0), pady=5)
+    log_scroll = ttk.Scrollbar(log_frame, orient="vertical", command=log_panel.yview)
+    log_scroll.grid(row=0, column=1, sticky="ns", padx=(0, 5), pady=5)
+    log_panel.configure(yscrollcommand=log_scroll.set)
     text_handler = TextHandler(log_panel)
     text_handler.setFormatter(logging.getLogger().handlers[0].formatter)
     logging.getLogger().addHandler(text_handler)
