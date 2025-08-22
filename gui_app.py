@@ -38,33 +38,39 @@ def main():
     root = Tk()
     root.title("MEOS Extract GUI")
     root.geometry("600x300")
+    root.minsize(600, 300)
+    root.grid_rowconfigure(0, weight=1)
+    root.grid_rowconfigure(1, weight=0)
+    root.grid_columnconfigure(0, weight=1)
 
     main_frame = Frame(root)
-    main_frame.pack(fill="both", expand=True)
+    main_frame.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
 
     listbox = Listbox(main_frame, width=60, height=8, selectmode="extended")
-    listbox.pack(fill="x")
+    listbox.pack(fill="x", padx=5, pady=5)
 
     lbl_input = Label(main_frame, anchor="w", text="Input folder:")
-    lbl_input.pack(fill="x")
+    lbl_input.pack(fill="x", padx=5, pady=5)
 
     lbl_output = Label(main_frame, anchor="w", text="Output folder:")
-    lbl_output.pack(fill="x")
+    lbl_output.pack(fill="x", padx=5, pady=5)
 
     lbl_count = Label(main_frame)
-    lbl_count.pack(fill="x")
+    lbl_count.pack(fill="x", padx=5, pady=5)
 
     bottom_frame = Frame(root)
-    bottom_frame.pack(fill="x", side="bottom")
+    bottom_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+    bottom_frame.grid_rowconfigure(1, weight=1)
+    bottom_frame.grid_columnconfigure(0, weight=1)
+
+    btn_frame = Frame(bottom_frame)
+    btn_frame.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
 
     log_panel = ScrolledText(bottom_frame, height=10, state="disabled")
-    log_panel.pack(fill="both", expand=True, side="bottom")
+    log_panel.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
     text_handler = TextHandler(log_panel)
     text_handler.setFormatter(logging.getLogger().handlers[0].formatter)
     logging.getLogger().addHandler(text_handler)
-
-    btn_frame = Frame(bottom_frame)
-    btn_frame.pack(fill="x")
 
     def update_count():
         n = listbox.size()
