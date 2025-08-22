@@ -20,6 +20,7 @@
 # ------------------------------------------
 
 from pathlib import Path
+import argparse
 import re
 from datetime import datetime, timezone, timedelta
 
@@ -515,10 +516,28 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
     return out_path
 
 
-def main():
-    out_path = process_html(INPUT_HTML, Path("."))
+def main_cli():
+    parser = argparse.ArgumentParser(
+        description="Estrae i grafici da un report HTML e li salva in un Excel unico."
+    )
+    parser.add_argument(
+        "html_path",
+        nargs="?",
+        default=INPUT_HTML,
+        type=Path,
+        help="Percorso del file HTML da elaborare (default: report.html)",
+    )
+    parser.add_argument(
+        "-o",
+        "--output-dir",
+        default=Path("."),
+        type=Path,
+        help="Directory in cui salvare l'Excel (default: cartella corrente)",
+    )
+    args = parser.parse_args()
+    out_path = process_html(args.html_path, args.output_dir)
     print(f"Salvato: {out_path}")
 
 
 if __name__ == "__main__":
-    main()
+    main_cli()
