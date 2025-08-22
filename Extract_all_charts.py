@@ -555,9 +555,8 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
                 chart_sheet = wb.create_chartsheet(csheet)
                 chart_sheet.add_chart(chart)
 
-            default = wb.get_sheet_by_name("Sheet")
-            if default:
-                wb.remove(default)
+            if "Sheet" in wb.sheetnames:
+                wb.remove(wb["Sheet"])
 
     return out_path
 
