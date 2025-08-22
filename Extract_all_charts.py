@@ -31,7 +31,7 @@ from bs4 import BeautifulSoup
 from openpyxl.chart import ScatterChart, Reference, Series
 
 
-INPUT_HTML = Path("report.html")  # cambia qui se vuoi un altro nome/percorso
+DEFAULT_HTML = Path("report.html")  # used if directory lacks .html
 
 logging.basicConfig(level=logging.INFO)
 
@@ -563,11 +563,11 @@ def main_cli():
         description="Estrae i grafici da un report HTML e li salva in un Excel unico."
     )
     parser.add_argument(
-        "html_path",
+        "path",
         nargs="?",
-        default=INPUT_HTML,
+        default=Path("."),
         type=Path,
-        help="Percorso del file HTML da elaborare (default: report.html)",
+        help="File HTML o directory contenente l'HTML (default: cartella corrente)",
     )
     parser.add_argument(
         "-o",
@@ -577,7 +577,16 @@ def main_cli():
         help="Directory in cui salvare l'Excel (default: cartella corrente)",
     )
     args = parser.parse_args()
-    out_path = process_html(args.html_path, args.output_dir)
+
+    html_path = args.path
+    if html_path.is_dir():
+        html_files = sorted(html_path.glob("*.html"))
+        if html_files:
+            html_path = html_files[0]
+        else:
+            html_path = html_path / DEFAULT_HTML
+
+    out_path = process_html(html_path, args.output_dir)
     logging.info("Salvato: %s", out_path)
 
 
