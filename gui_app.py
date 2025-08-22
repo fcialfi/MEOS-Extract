@@ -1,5 +1,5 @@
 from pathlib import Path
-from tkinter import Tk, Listbox, Button, messagebox, filedialog
+from tkinter import Tk, Listbox, Button, Label, messagebox, filedialog
 
 from Extract_all_charts import process_html, INPUT_HTML
 
@@ -8,8 +8,17 @@ def main():
     root = Tk()
     root.title("MEOS Extract GUI")
 
-    listbox = Listbox(root, width=60)
+    listbox = Listbox(root, width=60, selectmode="extended")
     listbox.pack(fill="both", expand=True)
+
+    lbl_count = Label(root)
+    lbl_count.pack()
+
+    def update_count():
+        n = listbox.size()
+        lbl_count.config(
+            text=f"{n} cartella{'e' if n != 1 else ''} in coda"
+        )
 
     output_dir = {"path": None}
 
@@ -17,11 +26,13 @@ def main():
         folder = filedialog.askdirectory(title="Seleziona cartella")
         if folder:
             listbox.insert("end", folder)
+            update_count()
 
     def remove_selected():
         sel = listbox.curselection()
         for idx in reversed(sel):
             listbox.delete(idx)
+        update_count()
 
     def select_output():
         folder = filedialog.askdirectory(title="Seleziona directory di output")
@@ -54,6 +65,8 @@ def main():
     btn_remove.pack(side="left")
     btn_output.pack(side="left")
     btn_run.pack(side="left")
+
+    update_count()
 
     root.mainloop()
 
