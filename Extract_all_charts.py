@@ -401,14 +401,33 @@ def derive_orbit_filename(soup: BeautifulSoup):
 
 # -------------------- Main --------------------
 
-def main():
-    html = INPUT_HTML
+def process_html(html_path: Path, output_dir: Path) -> Path:
+    """Elabora un report HTML e salva i grafici in un file Excel.
+
+    Parameters
+    ----------
+    html_path : Path
+        Percorso del file HTML del report.
+    output_dir : Path
+        Directory in cui salvare l'Excel risultante.
+
+    Returns
+    -------
+    Path
+        Percorso del file Excel creato.
+    """
+    html = Path(html_path)
     if not html.exists():
-        alt = Path(__file__).resolve().parent / INPUT_HTML.name
+        alt = Path(__file__).resolve().parent / html.name
         if alt.exists():
             html = alt
         else:
-            raise FileNotFoundError(f"File HTML non trovato: {INPUT_HTML} (cwd) o {alt} (script dir)")
+            raise FileNotFoundError(
+                f"File HTML non trovato: {html_path} (cwd) o {alt} (script dir)"
+            )
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     with html.open("r", encoding="utf-8") as f:
         soup = BeautifulSoup(f, "html.parser")
@@ -457,19 +476,21 @@ def main():
     # writer: prova .xls se xlwt presente; altrimenti .xlsx
     try:
         import xlwt  # noqa: F401
-        out_path = Path(base + ".xls")
+        out_path = output_dir / (base + ".xls")
         writer = pd.ExcelWriter(out_path, engine="xlwt")
     except Exception:
-        out_path = Path(base + ".xlsx")
+        out_path = output_dir / (base + ".xlsx")
         writer = pd.ExcelWriter(out_path)
 
     with writer as wr:
         # Meta
-        pd.DataFrame([{
-            "start_time_utc": start_dt.strftime("%Y-%m-%d %H:%M:%S") if start_dt else None,
-            "stop_time_utc":  stop_dt .strftime("%Y-%m-%d %H:%M:%S") if stop_dt  else None,
-            "report_time_utc":rep_dt  .strftime("%Y-%m-%d %H:%M:%S") if rep_dt   else None
-        }]).to_excel(wr, sheet_name="__meta__", index=False)
+        pd.DataFrame([
+            {
+                "start_time_utc": start_dt.strftime("%Y-%m-%d %H:%M:%S") if start_dt else None,
+                "stop_time_utc": stop_dt.strftime("%Y-%m-%d %H:%M:%S") if stop_dt else None,
+                "report_time_utc": rep_dt.strftime("%Y-%m-%d %H:%M:%S") if rep_dt else None,
+            }
+        ]).to_excel(wr, sheet_name="__meta__", index=False)
 
         # Per ogni sezione, estrai e salva in un foglio
         for hdr_id, title, ycol in targets:
@@ -479,7 +500,9 @@ def main():
 
             sheet = safe_sheet_name(title)
             if df.empty:
-                pd.DataFrame([{"note": "nessun dato estratto"}]).to_excel(wr, sheet_name=sheet, index=False)
+                pd.DataFrame([{"note": "nessun dato estratto"}]).to_excel(
+                    wr, sheet_name=sheet, index=False
+                )
             else:
                 df.to_excel(wr, sheet_name=sheet, index=False)
 
@@ -489,6 +512,11 @@ def main():
                 wr, sheet_name=tname, index=False
             )
 
+    return out_path
+
+
+def main():
+    out_path = process_html(INPUT_HTML, Path("."))
     print(f"Salvato: {out_path}")
 
 
