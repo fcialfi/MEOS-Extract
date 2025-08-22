@@ -465,6 +465,8 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
         ("_frame_error_rate", "Frame Error Rate", "fer"),
         ("_demodulator_lock_state", "Demodulator Lock State", "lock_state"),
         ("_fep_lock_state", "FEP Lock State", "fep_lock_state"),
+        ("_azimuth", "Azimuth", "azimuth_deg"),
+        ("_elevation", "Elevation", "elevation_deg"),
     ]
 
     # Nome file in base a (prefix, orbit_no) trovati nell'HTML
