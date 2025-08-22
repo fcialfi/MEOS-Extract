@@ -182,7 +182,7 @@ def svg_axes_from_ticks(svg):
         content = (t.get_text() or "").strip()
         if not content:
             continue
-        is_num = re.fullmatch(r"[-+]?\d+(?:\.\d+)?(?:°)?", content) is not None
+        is_num = re.fullmatch(r"[-+]?\d+(?:\.\d+)?", content) is not None
         is_time = (
             re.fullmatch(r"\d{2}:\d{2}", content) is not None or
             re.fullmatch(r"\d{2}:\d{2}:\d{2}", content) is not None
@@ -327,9 +327,7 @@ def map_y_from_ticks(df: pd.DataFrame, ticks: pd.DataFrame, colname: str):
     if y_ticks.empty:
         df[colname] = np.nan
         return df
-    y_ticks["value"] = (
-        y_ticks["text"].str.replace(r"[^0-9.+-]", "", regex=True).astype(float)
-    )
+    y_ticks["value"] = y_ticks["text"].astype(float)
     Y = np.vstack([y_ticks["y_px"].values, np.ones(len(y_ticks))]).T
     a, b = np.linalg.lstsq(Y, y_ticks["value"].values, rcond=None)[0]
     df[colname] = a * df["y_px"] + b
@@ -467,8 +465,6 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
         ("_frame_error_rate", "Frame Error Rate", "fer"),
         ("_demodulator_lock_state", "Demodulator Lock State", "lock_state"),
         ("_fep_lock_state", "FEP Lock State", "fep_lock_state"),
-        ("_azimuth", "Azimuth", "azimuth_deg"),
-        ("_elevation", "Elevation", "elevation_deg"),
     ]
 
     # Nome file in base a (prefix, orbit_no) trovati nell'HTML
