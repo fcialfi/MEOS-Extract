@@ -32,3 +32,5 @@ Un'interfaccia Tkinter è disponibile per elaborare più cartelle.
 4. Premere **Run** per generare gli Excel; ogni file salvato verrà segnalato.
 5. La GUI richiede `tkinter`. Se non è già presente, installarlo come indicato nella sezione *Dipendenze*.
 
+I log dell'applicazione sono salvati nel file `gui_app.log` nella stessa directory dello script. Se il file non è scrivibile, i messaggi vengono mostrati solo in console.
+

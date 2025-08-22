@@ -5,13 +5,17 @@ import logging
 from Extract_all_charts import process_html, INPUT_HTML
 
 
+LOG_PATH = Path(__file__).resolve().with_name("gui_app.log")
+LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+handlers = [logging.StreamHandler()]
+try:
+    handlers.insert(0, logging.FileHandler(LOG_PATH))
+except OSError as exc:  # pragma: no cover - log fallback
+    print(f"Impossibile scrivere il file di log: {exc}")
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler("gui_app.log"),
-        logging.StreamHandler(),
-    ],
+    handlers=handlers,
     force=True,
 )
 
