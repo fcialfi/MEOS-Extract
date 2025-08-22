@@ -410,7 +410,8 @@ def main():
         else:
             raise FileNotFoundError(f"File HTML non trovato: {INPUT_HTML} (cwd) o {alt} (script dir)")
 
-    soup = BeautifulSoup(open(html, "r", encoding="utf-8"), "html.parser")
+    with html.open("r", encoding="utf-8") as f:
+        soup = BeautifulSoup(f, "html.parser")
 
     # Tempi di sessione
     start_dt = stop_dt = rep_dt = None
