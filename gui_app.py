@@ -1,7 +1,19 @@
 from pathlib import Path
 from tkinter import Tk, Listbox, Button, Label, messagebox, filedialog
+import logging
 
 from Extract_all_charts import process_html, INPUT_HTML
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("gui_app.log"),
+        logging.StreamHandler(),
+    ],
+    force=True,
+)
 
 
 def main():
@@ -42,6 +54,7 @@ def main():
     def run():
         if output_dir["path"] is None:
             messagebox.showwarning("Output mancante", "Seleziona una directory di output")
+            logging.warning("Directory di output non selezionata")
             return
         saved = []
         for i in range(listbox.size()):
@@ -49,12 +62,15 @@ def main():
             report = folder / INPUT_HTML.name
             try:
                 out = process_html(report, output_dir["path"])
-                print(f"Salvato: {out}")
+                messagebox.showinfo("Salvato", f"Salvato: {out}")
+                logging.info("Salvato: %s", out)
                 saved.append(out)
             except Exception as exc:
+                logging.exception("Errore elaborando %s", folder)
                 messagebox.showerror("Errore", f"{folder}: {exc}")
                 return
         messagebox.showinfo("Completato", f"Creati {len(saved)} file")
+        logging.info("Completato: creati %d file", len(saved))
 
     btn_add = Button(root, text="Aggiungi cartella", command=add_folder)
     btn_remove = Button(root, text="Rimuovi selezionata", command=remove_selected)

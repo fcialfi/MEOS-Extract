@@ -23,6 +23,7 @@ from pathlib import Path
 import argparse
 import re
 from datetime import datetime, timezone, timedelta
+import logging
 
 import numpy as np
 import pandas as pd
@@ -30,6 +31,8 @@ from bs4 import BeautifulSoup
 
 
 INPUT_HTML = Path("report.html")  # cambia qui se vuoi un altro nome/percorso
+
+logging.basicConfig(level=logging.INFO)
 
 
 # -------------------- Utilities --------------------
@@ -536,7 +539,7 @@ def main_cli():
     )
     args = parser.parse_args()
     out_path = process_html(args.html_path, args.output_dir)
-    print(f"Salvato: {out_path}")
+    logging.info("Salvato: %s", out_path)
 
 
 if __name__ == "__main__":
