@@ -27,8 +27,6 @@ import logging
 import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
-from openpyxl.chart import ScatterChart, Reference, Series
-from openpyxl.chart.axis import DateAxis
 
 
 DEFAULT_HTML = Path("report.html")  # used if directory lacks .html
@@ -480,7 +478,6 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
 
     # writer: salva sempre in .xlsx
     out_path = output_dir / (base + ".xlsx")
-    charts_info = []
     with pd.ExcelWriter(out_path, engine="openpyxl") as wr:
         # Meta
         pd.DataFrame([
@@ -519,43 +516,14 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
             else:
                 df.to_excel(wr, sheet_name=sheet, index=False)
 
-            if not df.empty:
-                charts_info.append((sheet, title, ycol, len(df)))
-
             # Ticks in foglio dedicato
             tname = safe_sheet_name(title + " ticks")
             (ticks if not ticks.empty else pd.DataFrame([{"note": "no ticks"}])).to_excel(
                 wr, sheet_name=tname, index=False
             )
-
-    from openpyxl import load_workbook
-
-    wb = load_workbook(out_path)
-    for sheet, title, ycol, rows in charts_info:
-        ws_data = wb[sheet]
-        csheet = wb.create_chartsheet(f"{title} chart")
-
-        chart = ScatterChart()
-        chart.x_axis = DateAxis()
-        chart.x_axis.title = "Time"
-        chart.x_axis.number_format = "hh:mm:ss"
-        chart.x_axis.tick_label_position = "low"
-        chart.x_axis.tick_label_rotation = -45   # tilt labels for readability
-        chart.scatterStyle = "lineMarker"   # draw a single line through points
-        chart.varyColors = False            # ensure a monochromatic trace
-        chart.title = title
-        chart.y_axis.title = ycol
-        x_ref = Reference(ws_data, min_col=5, min_row=2, max_row=rows + 1)
-        y_ref = Reference(ws_data, min_col=6, min_row=2, max_row=rows + 1)
-        series = Series(values=y_ref, xvalues=x_ref, title=ycol)
-        series.smooth = True
-        chart.series = []
-        chart.series.append(series)
-        csheet.add_chart(chart)
-
+    wb = wr.book
     if "Sheet" in wb.sheetnames:
         wb.remove(wb["Sheet"])
-    wb.save(out_path)
 
     return out_path
 
