@@ -28,6 +28,7 @@ import logging
 import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
+from openpyxl.chart import LineChart, Reference
 
 
 INPUT_HTML = Path("report.html")  # cambia qui se vuoi un altro nome/percorso
@@ -509,6 +510,29 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
                 )
             else:
                 df.to_excel(wr, sheet_name=sheet, index=False)
+
+            # Charts rely on openpyxl and are skipped when generating .xls (xlwt)
+            if wr.engine == "openpyxl" and not df.empty:
+                wb = wr.book
+                ws_data = wr.sheets[sheet]
+                csheet = safe_sheet_name(title + " chart")
+                # create chart sheet after data sheet (tick sheet will be added later)
+                ws_chart = wb.create_sheet(csheet)
+                wr.sheets[csheet] = ws_chart
+
+                chart = LineChart()
+                chart.title = title
+                x_idx = (
+                    df.columns.get_loc("time_HH:MM:SS") + 1
+                    if "time_HH:MM:SS" in df.columns
+                    else df.columns.get_loc("time_iso_utc") + 1
+                )
+                y_idx = df.columns.get_loc(ycol) + 1
+                cats = Reference(ws_data, min_col=x_idx, min_row=2, max_row=len(df) + 1)
+                data_ref = Reference(ws_data, min_col=y_idx, min_row=1, max_row=len(df) + 1)
+                chart.add_data(data_ref, titles_from_data=True)
+                chart.set_categories(cats)
+                ws_chart.add_chart(chart, "A1")
 
             # Ticks in foglio dedicato
             tname = safe_sheet_name(title + " ticks")
