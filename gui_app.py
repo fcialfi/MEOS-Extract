@@ -27,6 +27,12 @@ def main():
     listbox = Listbox(root, width=60, selectmode="extended")
     listbox.pack(fill="both", expand=True)
 
+    lbl_input = Label(root, anchor="w")
+    lbl_input.pack(fill="x")
+
+    lbl_output = Label(root, anchor="w")
+    lbl_output.pack(fill="x")
+
     lbl_count = Label(root)
     lbl_count.pack()
 
@@ -38,10 +44,16 @@ def main():
 
     output_dir = {"path": None}
 
+    def on_select(event):
+        sel = listbox.curselection()
+        if sel:
+            lbl_input.config(text=listbox.get(sel[0]))
+
     def add_folder():
         folder = filedialog.askdirectory(title="Seleziona cartella")
         if folder:
             listbox.insert("end", folder)
+            lbl_input.config(text=folder)
             update_count()
 
     def remove_selected():
@@ -54,6 +66,7 @@ def main():
         folder = filedialog.askdirectory(title="Seleziona directory di output")
         if folder:
             output_dir["path"] = Path(folder)
+            lbl_output.config(text=folder)
 
     def run():
         if output_dir["path"] is None:
@@ -75,6 +88,8 @@ def main():
                 return
         messagebox.showinfo("Completato", f"Creati {len(saved)} file")
         logging.info("Completato: creati %d file", len(saved))
+
+    listbox.bind("<<ListboxSelect>>", on_select)
 
     btn_add = Button(root, text="Aggiungi cartella", command=add_folder)
     btn_remove = Button(root, text="Rimuovi selezionata", command=remove_selected)
