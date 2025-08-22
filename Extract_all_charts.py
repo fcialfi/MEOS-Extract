@@ -537,6 +537,8 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
                 wr.sheets[csheet] = ws_chart
 
                 chart = ScatterChart()
+                chart.scatterStyle = "lineMarker"   # draw a single line through points
+                chart.varyColors = False            # ensure a monochromatic trace
                 chart.title = title
                 chart.x_axis.title = "Time"
                 chart.y_axis.title = ycol
@@ -544,7 +546,9 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
                 x_ref = Reference(ws_data, min_col=5, min_row=2, max_row=len(df) + 1)
                 y_ref = Reference(ws_data, min_col=6, min_row=2, max_row=len(df) + 1)
                 series = Series(values=y_ref, xvalues=x_ref, title=ycol)
-                chart.series = [series]
+                series.smooth = True
+                chart.series = []
+                chart.series.append(series)
                 ws_chart.add_chart(chart, "A1")
 
             # Ticks in foglio dedicato
