@@ -1,5 +1,5 @@
 from pathlib import Path
-from tkinter import Tk, Listbox, Button, Label, filedialog
+from tkinter import Tk, Listbox, Button, Label, filedialog, Frame
 from tkinter.scrolledtext import ScrolledText
 import logging
 
@@ -39,23 +39,32 @@ def main():
     root.title("MEOS Extract GUI")
     root.geometry("600x300")
 
-    listbox = Listbox(root, width=60, height=8, selectmode="extended")
+    main_frame = Frame(root)
+    main_frame.pack(fill="both", expand=True)
+
+    listbox = Listbox(main_frame, width=60, height=8, selectmode="extended")
     listbox.pack(fill="x")
 
-    lbl_input = Label(root, anchor="w")
+    lbl_input = Label(main_frame, anchor="w")
     lbl_input.pack(fill="x")
 
-    lbl_output = Label(root, anchor="w")
+    lbl_output = Label(main_frame, anchor="w")
     lbl_output.pack(fill="x")
 
-    lbl_count = Label(root)
-    lbl_count.pack()
+    lbl_count = Label(main_frame)
+    lbl_count.pack(fill="x")
 
-    log_panel = ScrolledText(root, height=10, state="disabled")
-    log_panel.pack(fill="both", side="bottom")
+    bottom_frame = Frame(root)
+    bottom_frame.pack(fill="x", side="bottom")
+
+    log_panel = ScrolledText(bottom_frame, height=10, state="disabled")
+    log_panel.pack(fill="both", expand=True, side="bottom")
     text_handler = TextHandler(log_panel)
     text_handler.setFormatter(logging.getLogger().handlers[0].formatter)
     logging.getLogger().addHandler(text_handler)
+
+    btn_frame = Frame(bottom_frame)
+    btn_frame.pack(fill="x")
 
     def update_count():
         n = listbox.size()
@@ -108,17 +117,17 @@ def main():
 
     listbox.bind("<<ListboxSelect>>", on_select)
 
-    btn_add = Button(root, text="Aggiungi cartella", command=add_folder)
-    btn_remove = Button(root, text="Rimuovi selezionata", command=remove_selected)
-    btn_output = Button(root, text="Seleziona output", command=select_output)
-    btn_run = Button(root, text="Run", command=run)
-    btn_exit = Button(root, text="Exit", command=root.destroy)
+    btn_add = Button(btn_frame, text="Aggiungi cartella", command=add_folder)
+    btn_remove = Button(btn_frame, text="Rimuovi selezionata", command=remove_selected)
+    btn_output = Button(btn_frame, text="Seleziona output", command=select_output)
+    btn_run = Button(btn_frame, text="Run", command=run)
+    btn_exit = Button(btn_frame, text="Exit", command=root.destroy)
 
-    btn_add.pack(side="left")
-    btn_remove.pack(side="left")
-    btn_output.pack(side="left")
-    btn_run.pack(side="left")
-    btn_exit.pack(side="left")
+    btn_add.pack(side="left", padx=5, pady=5)
+    btn_remove.pack(side="left", padx=5, pady=5)
+    btn_output.pack(side="left", padx=5, pady=5)
+    btn_run.pack(side="left", padx=5, pady=5)
+    btn_exit.pack(side="left", padx=5, pady=5)
 
     root.bind("<Escape>", lambda e: root.destroy())
     update_count()
