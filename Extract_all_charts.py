@@ -6,7 +6,7 @@
 # ricostruisce Y dai tick numerici, rimuove segmenti spurii (legend/diagonale)
 # e salva un unico Excel con un foglio per grafico.
 #
-# Nome file: <prefix>_orbit_<num>.xls/.xlsx (prefix e orbit number letti dall'HTML)
+# Nome file: <prefix>_orbit_<num>.xlsx (prefix e orbit number letti dall'HTML)
 #   - Se manca il prefix: "orbit_<num>..."
 #   - Se manca anche il numero: "orbit..."
 #
@@ -16,7 +16,6 @@
 #
 # Dipendenze:
 #   pip install beautifulsoup4 pandas numpy openpyxl
-#   (opzionale per .xls: pip install xlwt)
 # ------------------------------------------
 
 from pathlib import Path
@@ -479,14 +478,9 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
         "orbit"
     )
 
-    # writer: prova .xls se xlwt presente; altrimenti .xlsx
-    try:
-        import xlwt  # noqa: F401
-        out_path = output_dir / (base + ".xls")
-        writer = pd.ExcelWriter(out_path, engine="xlwt")
-    except Exception:
-        out_path = output_dir / (base + ".xlsx")
-        writer = pd.ExcelWriter(out_path)
+    # writer: salva sempre in .xlsx
+    out_path = output_dir / (base + ".xlsx")
+    writer = pd.ExcelWriter(out_path, engine="openpyxl")
 
     with writer as wr:
         # Meta
