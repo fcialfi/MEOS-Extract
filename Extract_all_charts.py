@@ -499,6 +499,7 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
         ]).to_excel(wr, sheet_name="__meta__", index=False)
 
         # Per ogni sezione, estrai e salva in un foglio
+        charts_info = []
         for hdr_id, title, ycol in targets:
             df, ticks = extract_curve_for_header_id(soup, hdr_id)
             df = map_x_to_time(df, start_dt, stop_dt)
@@ -526,16 +527,20 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
             else:
                 df.to_excel(wr, sheet_name=sheet, index=False)
 
-            # Charts rely on openpyxl and are skipped when generating .xls (xlwt)
             if wr.engine == "openpyxl" and not df.empty:
-                wb = wr.book
+                charts_info.append((sheet, title, ycol, len(df)))
+
+            # Ticks in foglio dedicato
+            tname = safe_sheet_name(title + " ticks")
+            (ticks if not ticks.empty else pd.DataFrame([{"note": "no ticks"}])).to_excel(
+                wr, sheet_name=tname, index=False
+            )
+
+        if wr.engine == "openpyxl":
+            wb = wr.book
+            for sheet, title, ycol, rows in charts_info:
                 ws_data = wr.sheets[sheet]
                 csheet = safe_sheet_name(title + " chart")
-                # create chart sheet after data sheet (tick sheet will be added later)
-                ws_chart = wb.create_sheet(
-                    csheet, index=wb.sheetnames.index(ws_data.title) + 1
-                )
-                wr.sheets[csheet] = ws_chart
 
                 chart = ScatterChart()
                 chart.x_axis = DateAxis()
@@ -547,19 +552,18 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
                 chart.varyColors = False            # ensure a monochromatic trace
                 chart.title = title
                 chart.y_axis.title = ycol
-                x_ref = Reference(ws_data, min_col=5, min_row=2, max_row=len(df) + 1)
-                y_ref = Reference(ws_data, min_col=6, min_row=2, max_row=len(df) + 1)
+                x_ref = Reference(ws_data, min_col=5, min_row=2, max_row=rows + 1)
+                y_ref = Reference(ws_data, min_col=6, min_row=2, max_row=rows + 1)
                 series = Series(values=y_ref, xvalues=x_ref, title=ycol)
                 series.smooth = True
                 chart.series = []
                 chart.series.append(series)
-                ws_chart.add_chart(chart, "A1")
+                chart_sheet = wb.create_chartsheet(csheet)
+                chart_sheet.add_chart(chart)
 
-            # Ticks in foglio dedicato
-            tname = safe_sheet_name(title + " ticks")
-            (ticks if not ticks.empty else pd.DataFrame([{"note": "no ticks"}])).to_excel(
-                wr, sheet_name=tname, index=False
-            )
+            default = wb.get_sheet_by_name("Sheet")
+            if default:
+                wb.remove(default)
 
     return out_path
 
