@@ -1,5 +1,5 @@
 from pathlib import Path
-from tkinter import Tk, Listbox, Button, Label, filedialog, Frame
+from tkinter import Tk, Listbox, Button, Label, filedialog, Frame, Entry, StringVar
 from tkinter.scrolledtext import ScrolledText
 import logging
 
@@ -49,11 +49,9 @@ def main():
     listbox = Listbox(main_frame, width=60, height=8, selectmode="extended")
     listbox.pack(fill="x", padx=5, pady=5)
 
-    lbl_input = Label(main_frame, anchor="w", text="Input folder:")
-    lbl_input.pack(fill="x", padx=5, pady=5)
-
-    lbl_output = Label(main_frame, anchor="w", text="Output folder: <none>")
-    lbl_output.pack(fill="x", padx=5, pady=5)
+    output_var = StringVar()
+    txt_output = Entry(main_frame, textvariable=output_var, state="readonly")
+    txt_output.pack(fill="x", padx=5, pady=5)
 
     lbl_count = Label(main_frame)
     lbl_count.pack(fill="x", padx=5, pady=5)
@@ -80,16 +78,10 @@ def main():
 
     output_dir = {"path": None}
 
-    def on_select(event):
-        sel = listbox.curselection()
-        if sel:
-            lbl_input.config(text=f"Input folder: {listbox.get(sel[0])}")
-
     def add_folder():
         folder = filedialog.askdirectory(title="Select folder")
         if folder:
             listbox.insert("end", folder)
-            lbl_input.config(text=f"Input folder: {folder}")
             update_count()
 
     def remove_selected():
@@ -102,7 +94,7 @@ def main():
         folder = filedialog.askdirectory(title="Select output directory")
         if folder:
             output_dir["path"] = Path(folder)
-            lbl_output.config(text=f"Output folder: {folder}")
+            output_var.set(folder)
 
     def run():
         if output_dir["path"] is None:
@@ -130,8 +122,6 @@ def main():
                 logging.exception("Error processing %s", folder)
                 return
         logging.info("Completed: created %d files", len(saved))
-
-    listbox.bind("<<ListboxSelect>>", on_select)
 
     btn_add = Button(btn_frame, text="Add folder", command=add_folder)
     btn_remove = Button(btn_frame, text="Remove selected", command=remove_selected)
