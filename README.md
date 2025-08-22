@@ -10,13 +10,10 @@ Script per estrarre i grafici dal report HTML generato da MEOS.
 - numpy
 - openpyxl
 - tkinter (se non incluso, installare ad es. `sudo apt install python3-tk`)
-- opzionale: xlwt per esportare in formato `.xls`
 
 Installazione rapida:
 ```bash
 pip install beautifulsoup4 pandas numpy openpyxl
-# opzionale per formato .xls
-pip install xlwt
 ```
 
 ## Interfaccia grafica
