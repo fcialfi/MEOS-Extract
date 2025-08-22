@@ -50,7 +50,13 @@ def main():
     listbox.pack(fill="x", padx=5, pady=5)
 
     output_var = StringVar()
-    txt_output = Entry(main_frame, textvariable=output_var, state="readonly")
+    txt_output = Entry(
+        main_frame,
+        textvariable=output_var,
+        state="readonly",
+        readonlybackground="white",
+        width=60,
+    )
     txt_output.pack(fill="x", padx=5, pady=5)
 
     lbl_count = Label(main_frame)
