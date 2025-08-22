@@ -3,7 +3,7 @@ from tkinter import Tk, Listbox, Button, Label, filedialog, Frame
 from tkinter.scrolledtext import ScrolledText
 import logging
 
-from Extract_all_charts import process_html, INPUT_HTML
+from Extract_all_charts import process_html
 
 
 LOG_PATH = Path(__file__).resolve().with_name("gui_app.log")
@@ -111,7 +111,17 @@ def main():
         saved = []
         for i in range(listbox.size()):
             folder = Path(listbox.get(i))
-            report = folder / INPUT_HTML.name
+            html_files = sorted(folder.glob("*.html"))
+            if not html_files:
+                logging.warning("No HTML file in %s", folder)
+                continue
+            if len(html_files) > 1:
+                logging.warning(
+                    "Multiple HTML files in %s; using %s",
+                    folder,
+                    html_files[0].name,
+                )
+            report = html_files[0]
             try:
                 out = process_html(report, output_dir["path"])
                 logging.info("Saved: %s", out)
