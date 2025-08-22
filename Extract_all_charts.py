@@ -480,9 +480,8 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
 
     # writer: salva sempre in .xlsx
     out_path = output_dir / (base + ".xlsx")
-    writer = pd.ExcelWriter(out_path, engine="openpyxl")
-
-    with writer as wr:
+    charts_info = []
+    with pd.ExcelWriter(out_path, engine="openpyxl") as wr:
         # Meta
         pd.DataFrame([
             {
@@ -493,7 +492,6 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
         ]).to_excel(wr, sheet_name="__meta__", index=False)
 
         # Per ogni sezione, estrai e salva in un foglio
-        charts_info = []
         for hdr_id, title, ycol in targets:
             df, ticks = extract_curve_for_header_id(soup, hdr_id)
             df = map_x_to_time(df, start_dt, stop_dt)
@@ -521,7 +519,7 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
             else:
                 df.to_excel(wr, sheet_name=sheet, index=False)
 
-            if wr.engine == "openpyxl" and not df.empty:
+            if not df.empty:
                 charts_info.append((sheet, title, ycol, len(df)))
 
             # Ticks in foglio dedicato
@@ -530,33 +528,34 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
                 wr, sheet_name=tname, index=False
             )
 
-        if wr.engine == "openpyxl":
-            wb = wr.book
-            for sheet, title, ycol, rows in charts_info:
-                ws_data = wr.sheets[sheet]
-                csheet = safe_sheet_name(title + " chart")
+    from openpyxl import load_workbook
 
-                chart = ScatterChart()
-                chart.x_axis = DateAxis()
-                chart.x_axis.title = "Time"
-                chart.x_axis.number_format = "hh:mm:ss"
-                chart.x_axis.tick_label_position = "low"
-                chart.x_axis.tick_label_rotation = -45   # tilt labels for readability
-                chart.scatterStyle = "lineMarker"   # draw a single line through points
-                chart.varyColors = False            # ensure a monochromatic trace
-                chart.title = title
-                chart.y_axis.title = ycol
-                x_ref = Reference(ws_data, min_col=5, min_row=2, max_row=rows + 1)
-                y_ref = Reference(ws_data, min_col=6, min_row=2, max_row=rows + 1)
-                series = Series(values=y_ref, xvalues=x_ref, title=ycol)
-                series.smooth = True
-                chart.series = []
-                chart.series.append(series)
-                chart_sheet = wb.create_chartsheet(csheet)
-                chart_sheet.add_chart(chart)
+    wb = load_workbook(out_path)
+    for sheet, title, ycol, rows in charts_info:
+        ws_data = wb[sheet]
+        csheet = wb.create_chartsheet(f"{title} chart")
 
-            if "Sheet" in wb.sheetnames:
-                wb.remove(wb["Sheet"])
+        chart = ScatterChart()
+        chart.x_axis = DateAxis()
+        chart.x_axis.title = "Time"
+        chart.x_axis.number_format = "hh:mm:ss"
+        chart.x_axis.tick_label_position = "low"
+        chart.x_axis.tick_label_rotation = -45   # tilt labels for readability
+        chart.scatterStyle = "lineMarker"   # draw a single line through points
+        chart.varyColors = False            # ensure a monochromatic trace
+        chart.title = title
+        chart.y_axis.title = ycol
+        x_ref = Reference(ws_data, min_col=5, min_row=2, max_row=rows + 1)
+        y_ref = Reference(ws_data, min_col=6, min_row=2, max_row=rows + 1)
+        series = Series(values=y_ref, xvalues=x_ref, title=ycol)
+        series.smooth = True
+        chart.series = []
+        chart.series.append(series)
+        csheet.add_chart(chart)
+
+    if "Sheet" in wb.sheetnames:
+        wb.remove(wb["Sheet"])
+    wb.save(out_path)
 
     return out_path
 
