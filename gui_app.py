@@ -111,12 +111,15 @@ def main():
     btn_remove = Button(root, text="Rimuovi selezionata", command=remove_selected)
     btn_output = Button(root, text="Seleziona output", command=select_output)
     btn_run = Button(root, text="Run", command=run)
+    btn_exit = Button(root, text="Exit", command=root.destroy)
 
     btn_add.pack(side="left")
     btn_remove.pack(side="left")
     btn_output.pack(side="left")
     btn_run.pack(side="left")
+    btn_exit.pack(side="left")
 
+    root.bind("<Escape>", lambda e: root.destroy())
     update_count()
 
     root.mainloop()
