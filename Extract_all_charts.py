@@ -541,15 +541,10 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
                 chart.x_axis.title = "Time"
                 chart.y_axis.title = ycol
                 chart.x_axis.number_format = "hh:mm:ss"
-                x_idx, y_idx = 5, 6
-                cat_ref = Reference(
-                    ws_data, min_col=x_idx, min_row=2, max_row=len(df) + 1
-                )
-                data_ref = Reference(
-                    ws_data, min_col=y_idx, min_row=2, max_row=len(df) + 1
-                )
-                series = Series(values=data_ref, xvalues=cat_ref, title_from_data=True)
-                chart.series.append(series)
+                x_ref = Reference(ws_data, min_col=5, min_row=2, max_row=len(df) + 1)
+                y_ref = Reference(ws_data, min_col=6, min_row=2, max_row=len(df) + 1)
+                series = Series(values=y_ref, xvalues=x_ref, title=ycol)
+                chart.series = [series]
                 ws_chart.add_chart(chart, "A1")
 
             # Ticks in foglio dedicato
