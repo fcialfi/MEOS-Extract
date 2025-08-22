@@ -29,6 +29,7 @@ import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
 from openpyxl.chart import ScatterChart, Reference, Series
+from openpyxl.chart.axis import DateAxis
 
 
 DEFAULT_HTML = Path("report.html")  # used if directory lacks .html
@@ -537,12 +538,15 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
                 wr.sheets[csheet] = ws_chart
 
                 chart = ScatterChart()
+                chart.x_axis = DateAxis()
+                chart.x_axis.title = "Time"
+                chart.x_axis.number_format = "hh:mm:ss"
+                chart.x_axis.tick_label_position = "low"
+                chart.x_axis.tick_label_rotation = -45   # tilt labels for readability
                 chart.scatterStyle = "lineMarker"   # draw a single line through points
                 chart.varyColors = False            # ensure a monochromatic trace
                 chart.title = title
-                chart.x_axis.title = "Time"
                 chart.y_axis.title = ycol
-                chart.x_axis.number_format = "hh:mm:ss"
                 x_ref = Reference(ws_data, min_col=5, min_row=2, max_row=len(df) + 1)
                 y_ref = Reference(ws_data, min_col=6, min_row=2, max_row=len(df) + 1)
                 series = Series(values=y_ref, xvalues=x_ref, title=ycol)
