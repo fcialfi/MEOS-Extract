@@ -37,9 +37,10 @@ class TextHandler(logging.Handler):
 def main():
     root = Tk()
     root.title("MEOS Extract GUI")
+    root.geometry("600x300")
 
-    listbox = Listbox(root, width=60, selectmode="extended")
-    listbox.pack(fill="both", expand=True)
+    listbox = Listbox(root, width=60, height=8, selectmode="extended")
+    listbox.pack(fill="x")
 
     lbl_input = Label(root, anchor="w")
     lbl_input.pack(fill="x")
