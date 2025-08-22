@@ -1,5 +1,6 @@
 from pathlib import Path
-from tkinter import Tk, Listbox, Button, Label, messagebox, filedialog
+from tkinter import Tk, Listbox, Button, Label, filedialog
+from tkinter.scrolledtext import ScrolledText
 import logging
 
 from Extract_all_charts import process_html, INPUT_HTML
@@ -20,6 +21,19 @@ logging.basicConfig(
 )
 
 
+class TextHandler(logging.Handler):
+    def __init__(self, widget):
+        super().__init__()
+        self.widget = widget
+
+    def emit(self, record):  # pragma: no cover - UI side effect
+        msg = self.format(record)
+        self.widget.configure(state="normal")
+        self.widget.insert("end", msg + "\n")
+        self.widget.configure(state="disabled")
+        self.widget.see("end")
+
+
 def main():
     root = Tk()
     root.title("MEOS Extract GUI")
@@ -35,6 +49,12 @@ def main():
 
     lbl_count = Label(root)
     lbl_count.pack()
+
+    log_panel = ScrolledText(root, height=10, state="disabled")
+    log_panel.pack(fill="both", side="bottom")
+    text_handler = TextHandler(log_panel)
+    text_handler.setFormatter(logging.getLogger().handlers[0].formatter)
+    logging.getLogger().addHandler(text_handler)
 
     def update_count():
         n = listbox.size()
@@ -70,7 +90,6 @@ def main():
 
     def run():
         if output_dir["path"] is None:
-            messagebox.showwarning("Output mancante", "Seleziona una directory di output")
             logging.warning("Directory di output non selezionata")
             return
         saved = []
@@ -79,14 +98,11 @@ def main():
             report = folder / INPUT_HTML.name
             try:
                 out = process_html(report, output_dir["path"])
-                messagebox.showinfo("Salvato", f"Salvato: {out}")
                 logging.info("Salvato: %s", out)
                 saved.append(out)
-            except Exception as exc:
+            except Exception:
                 logging.exception("Errore elaborando %s", folder)
-                messagebox.showerror("Errore", f"{folder}: {exc}")
                 return
-        messagebox.showinfo("Completato", f"Creati {len(saved)} file")
         logging.info("Completato: creati %d file", len(saved))
 
     listbox.bind("<<ListboxSelect>>", on_select)
