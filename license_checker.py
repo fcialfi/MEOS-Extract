@@ -5,6 +5,7 @@ import hmac
 import hashlib
 import json
 from datetime import datetime, date
+import sys
 
 # Secret key used to sign license files. Replace with your own secret in production.
 SECRET_KEY = b"demo-secret"
@@ -22,8 +23,21 @@ def validate_license(path: Path) -> bool:
     The license file must contain ``client``, ``expires`` and ``signature`` fields.
     The signature is expected to be the hex digest of
     ``HMAC(SECRET_KEY, f"{client}|{expires}")``.
+
+    When running from a PyInstaller ``--onefile`` bundle, ``license.key`` may be
+    packaged inside the executable. In that case ``sys._MEIPASS`` points to the
+    temporary extraction directory. This function will look for the license file
+    there if it is not found at the provided path.
     """
-    lic = load_license(path)
+    lic_path = path
+    if not lic_path.exists():
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            alt = Path(meipass) / path.name
+            if alt.exists():
+                lic_path = alt
+
+    lic = load_license(lic_path)
     if not lic:
         return False
 

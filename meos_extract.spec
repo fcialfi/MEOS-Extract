@@ -11,7 +11,7 @@ a_cli = Analysis(
     ['Extract_all_charts.py'],
     pathex=[str(project_root)],
     binaries=[],
-    datas=[],
+    datas=[('license.key', '.')],
     hiddenimports=['bs4', 'pandas', 'numpy', 'openpyxl'],  # add others if needed
     hookspath=[],
     hooksconfig={},
@@ -40,7 +40,7 @@ a_gui = Analysis(
     ['gui_app.py'],
     pathex=[str(project_root)],
     binaries=[],
-    datas=[],
+    datas=[('license.key', '.')],
     hiddenimports=['bs4', 'pandas', 'numpy', 'openpyxl'],
     hookspath=[],
     hooksconfig={},

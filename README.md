@@ -36,6 +36,8 @@ I log dell'applicazione sono salvati nel file `gui_app.log` nella stessa directo
 ## File di licenza
 
 Il programma richiede un file `license.key` nella stessa cartella di `Extract_all_charts.py` o `gui_app.py`.
+Nel repository è presente un file di esempio che viene incluso anche nel bundle PyInstaller,
+ma **deve essere sostituito con una chiave valida prima dell'esecuzione**.
 Il file deve contenere la stringa esadecimale generata con la stessa chiave segreta usata dall'applicazione:
 
 ```python
