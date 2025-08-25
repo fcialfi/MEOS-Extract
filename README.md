@@ -33,3 +33,7 @@ Un'interfaccia Tkinter è disponibile per elaborare più cartelle.
 
 I log dell'applicazione sono salvati nel file `gui_app.log` nella stessa directory dello script. Se il file non è scrivibile, i messaggi vengono mostrati solo in console.
 
+
+## Licenza
+
+Questo progetto è distribuito con licenza [MIT](LICENSE). Non è richiesto alcun file di attivazione.
