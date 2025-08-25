@@ -218,15 +218,14 @@ def extract_curve_for_header(hdr):
         return pd.DataFrame(), pd.DataFrame()
 
     svgs = []
-    cur = hdr
-    while True:
-        cur = cur.find_next_sibling()
-        if cur is None or cur.name in ("h2", "h3"):
+    for el in hdr.next_elements:
+        name = getattr(el, "name", None)
+        if name in ("h2", "h3"):
             break
-        svgs.extend(cur.find_all("svg"))
-        objects = cur.find_all("object", type="image/svg+xml")
-        for obj in objects:
-            data = obj.get("data", "")
+        if name == "svg":
+            svgs.append(el)
+        elif name == "object" and el.get("type") == "image/svg+xml":
+            data = el.get("data", "")
             if data.startswith("data:image/svg+xml;base64,"):
                 try:
                     svg_bytes = base64.b64decode(data.split(",", 1)[1])
