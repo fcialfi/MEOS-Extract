@@ -2,8 +2,9 @@
 # Generate the executables with:  pyinstaller meos_extract.spec
 
 from pathlib import Path
+import sys
 block_cipher = None
-project_root = Path(__file__).parent
+project_root = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
 
 # --- CLI analysis/executable ---
 a_cli = Analysis(
