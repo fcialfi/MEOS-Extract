@@ -515,6 +515,9 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
         if not has_chart:
             continue
         key = re.sub(r"\W+", "_", title.lower()).strip("_") or "section"
+        EXCLUDE = {"session", "activities", "channel"}
+        if key in EXCLUDE or any(key.endswith(f"_{e}") for e in EXCLUDE):
+            continue
         targets.append((hdr, key))
 
     # Nome file in base a (prefix, orbit_no) trovati nell'HTML
