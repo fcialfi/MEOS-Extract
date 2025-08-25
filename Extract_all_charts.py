@@ -25,6 +25,7 @@ from datetime import datetime, timezone, timedelta
 import logging
 import base64
 import urllib.request
+import sys
 
 import numpy as np
 import pandas as pd
@@ -587,7 +588,11 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
     Path
         Percorso del file Excel creato.
     """
-    ensure_valid_license()
+    try:
+        ensure_valid_license()
+    except RuntimeError as exc:
+        logging.error("License check failed: %s", exc)
+        sys.exit(1)
     html = Path(html_path)
     if not html.exists():
         alt = Path(__file__).resolve().parent / html.name
