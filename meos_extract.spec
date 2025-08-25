@@ -12,8 +12,7 @@ a_cli = Analysis(
     ['extract_all_charts.py'],          # main CLI script
     pathex=[str(project_root)],
     binaries=[],
-    datas=[('license.key', '.'),        # bundle sample license
-           ('license_checker.py', '.')],
+    datas=[('license_checker.py', '.')],
     hiddenimports=['bs4', 'pandas', 'numpy', 'openpyxl'],
     hookspath=[],
     hooksconfig={},
@@ -42,8 +41,7 @@ a_gui = Analysis(
     ['gui_app.py'],                       # Tkinter front-end
     pathex=[str(project_root)],
     binaries=[],
-    datas=[('license.key', '.'),          # same extras for GUI build
-           ('license_checker.py', '.')],
+    datas=[('license_checker.py', '.')],
     hiddenimports=['bs4', 'pandas', 'numpy', 'openpyxl'],
     hookspath=[],
     hooksconfig={},
