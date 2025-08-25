@@ -40,32 +40,84 @@ logger = logging.getLogger(__name__)
 # -------------------- Utilities --------------------
 
 def parse_iso_utc(s: str):
-    """Parse 'YYYY-MM-DD HH:MM:SSZ' → datetime tz-aware (UTC)."""
+    """Return a timezone aware :class:`datetime` from a ``YYYY-MM-DD HH:MM:SSZ`` string.
+
+    Parameters
+    ----------
+    s : str
+        Timestamp in the strict ISO format used in the HTML reports.
+
+    Returns
+    -------
+    datetime | None
+        ``datetime`` object in UTC or ``None`` if the input is missing or
+        does not match the expected pattern.
+
+    Notes
+    -----
+    The function validates the string with a regular expression before
+    constructing the ``datetime`` object. Only the ``Z`` (Zulu/UTC) timezone
+    designator is accepted.
+    """
     if not s:
-        return None
-    s = s.strip()
+        return None  # Empty field – nothing to parse
+    s = s.strip()  # Remove leading/trailing whitespace
+
+    # Match date and time components with a regular expression. ``m`` is a
+    # ``re.Match`` object if the pattern is found; otherwise ``None``.
     m = re.match(r"(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2}):(\d{2})Z", s)
     if not m:
-        return None
+        return None  # The string is not in the expected ISO format
+
+    # Split the first capture group (YYYY-MM-DD) into integers using ``map``
+    # and unpack the remaining groups for hours, minutes and seconds.
     y, mo, d = map(int, m.group(1).split("-"))
     hh, mm, ss = int(m.group(2)), int(m.group(3)), int(m.group(4))
+
+    # Create and return an aware ``datetime`` with the UTC timezone.
     return datetime(y, mo, d, hh, mm, ss, tzinfo=timezone.utc)
 
 
 def parse_transforms(transform: str):
-    """Accorpa scale()/translate() in (sx, sy, tx, ty)."""
-    sx, sy, tx, ty = 1.0, 1.0, 0.0, 0.0
+    """Collapse an SVG ``transform`` chain into scale and translation factors.
+
+    Parameters
+    ----------
+    transform : str
+        Value of the ``transform`` attribute, e.g. ``"scale(2) translate(3,4)"``.
+
+    Returns
+    -------
+    tuple[float, float, float, float]
+        Aggregate scale ``(sx, sy)`` and translation ``(tx, ty)`` values.
+
+    Explanation
+    -----------
+    SVG allows multiple ``scale`` and ``translate`` operations to be combined
+    in a single string.  This function walks through each transformation in
+    order and accumulates the resulting scale and translation.  Only these two
+    operations are handled because the charts produced by the MEOS report use
+    a simple transformation chain.
+    """
+    sx, sy, tx, ty = 1.0, 1.0, 0.0, 0.0  # Start with the identity transform
     if not transform:
-        return sx, sy, tx, ty
+        return sx, sy, tx, ty  # Nothing to parse → return defaults
+
+    # ``re.finditer`` yields each ``scale`` or ``translate`` call. Captured
+    # arguments are later split into a Python list of numbers.
     for m in re.finditer(r"(translate|scale)\(\s*([^)]+)\)", transform):
-        kind = m.group(1)
+        kind = m.group(1)  # Either 'scale' or 'translate'
+        # ``re.split`` handles comma- or space-separated numbers. ``list``
+        # comprehension converts each token to ``float``.
         args = [float(v) for v in re.split(r"[, \t]+", m.group(2).strip()) if v]
         if kind == "scale":
+            # Apply scaling. If only one value is supplied, it scales both axes.
             if len(args) == 1:
                 sx *= args[0]; sy *= args[0]
             else:
                 sx *= args[0]; sy *= args[1]
-        else:  # translate
+        else:  # ``translate`` case
+            # Translation accepts one or two numbers (x and optionally y).
             if len(args) == 1:
                 tx += args[0]
             else:
@@ -74,41 +126,107 @@ def parse_transforms(transform: str):
 
 
 def cumulative_transform(tag):
-    """Accumula scale/translate lungo la gerarchia SVG del nodo."""
+    """Compute the combined transform of an SVG element and its ancestors.
+
+    Parameters
+    ----------
+    tag : bs4.element.Tag
+        Current SVG node whose effective transform is required.
+
+    Returns
+    -------
+    tuple[float, float, float, float]
+        Overall scale ``(Sx, Sy)`` and translation ``(Tx, Ty)`` factors.
+
+    Details
+    -------
+    SVG applies parent transforms to child elements.  The function therefore
+    walks up the DOM tree collecting ``transform`` attributes, then applies
+    them from outermost to innermost.  A simple loop is used instead of
+    recursion to avoid building deep call stacks.
+    """
+    # Accumulators start as an identity transform: scale 1 and translation 0.
     Sx, Sy, Tx, Ty = 1.0, 1.0, 0.0, 0.0
-    chain = []
+    chain = []  # Will store transform strings encountered on the path to root
     cur = tag
+
+    # Traverse ancestors and collect their ``transform`` attributes. The
+    # ``getattr`` guard ensures compatibility with objects that may not be
+    # BeautifulSoup ``Tag`` instances.
     while cur is not None and getattr(cur, "name", None) is not None:
         tr = cur.get("transform")
         if tr:
             chain.append(tr)
-        cur = cur.parent
+        cur = cur.parent  # Move one level up the tree
+
+    # Apply transforms from root to current element. ``reversed`` produces a
+    # generator that yields items in reverse order without creating a copy.
     for tr in reversed(chain):
         sx, sy, tx, ty = parse_transforms(tr)
+        # First transform existing translation, then accumulate new offsets.
         Tx = sx * Tx + tx
         Ty = sy * Ty + ty
+        # Update the global scale factors.
         Sx *= sx
         Sy *= sy
     return Sx, Sy, Tx, Ty
 
 
 def apply_tr(x, y, Sx, Sy, Tx, Ty):
+    """Apply scale and translation factors to a point.
+
+    Parameters
+    ----------
+    x, y : float
+        Coordinates in the local SVG space.
+    Sx, Sy, Tx, Ty : float
+        Scale and translation returned by :func:`cumulative_transform`.
+
+    Returns
+    -------
+    tuple[float, float]
+        The transformed point in absolute pixel coordinates.
+    """
+    # Simple arithmetic uses Python's float type. Returning a tuple allows
+    # callers to unpack the two coordinates at once.
     return Sx * x + Tx, Sy * y + Ty
 
 
 def parse_path_subpaths(d_attr: str):
+    """Split an SVG ``path`` definition into absolute subpaths.
+
+    Parameters
+    ----------
+    d_attr : str
+        The content of the ``d`` attribute from a ``<path>`` element.
+
+    Returns
+    -------
+    list[list[tuple[float, float]]]
+        Each inner list contains ``(x, y)`` pairs describing one continuous
+        polyline. A new subpath starts whenever an ``M`` or ``m`` command is
+        encountered.
+
+    Description
+    -----------
+    Only the commands ``M/m`` (move), ``L/l`` (line), ``H/h`` (horizontal) and
+    ``V/v`` (vertical) are supported because the gnuplot output embedded in the
+    report uses these primitives exclusively.  Numbers are converted to
+    ``float`` for easier numeric processing.
     """
-    Parsea un 'path' SVG supportando M/m L/l H/h V/v e lo spezza in subpath.
-    Un nuovo subpath inizia a ogni 'M'/'m'. Ritorna lista di liste di (x,y).
-    """
+    # Extract drawing commands and numbers. The regular expression yields a
+    # list of tuples where only one item of each tuple is non-empty.
     tokens = re.findall(r"([MmLlHhVv])|([-+]?\d*\.?\d+(?:e[-+]?\d+)?)", d_attr or "")
+
     flat = []
     for a, b in tokens:
         if a:
-            flat.append(a)
+            flat.append(a)  # SVG command as a string
         else:
-            flat.append(float(b))
+            flat.append(float(b))  # Coordinate or length as Python float
 
+    # ``subpaths`` collects individual polylines; ``current`` tracks the one
+    # currently being built. ``x`` and ``y`` hold the cursor position.
     subpaths = []
     x = y = 0.0
     cmd = None
@@ -116,58 +234,65 @@ def parse_path_subpaths(d_attr: str):
     current = []
 
     def flush():
+        """Append ``current`` polyline to ``subpaths`` if it has at least two points."""
         nonlocal current
         if len(current) >= 2:
             subpaths.append(current)
-        current = []
+        current = []  # Reset for the next subpath
 
+    # Iterate through the token list using an index ``i`` so we can look ahead
+    # when commands require multiple numeric parameters.
     while i < len(flat):
         t = flat[i]
         if isinstance(t, str):
+            # ``t`` is a command letter. Store it and, for ``M/m``, close the
+            # previous subpath.
             cmd = t
             if cmd in ("M", "m"):
                 flush()
             i += 1
             continue
 
-        if cmd == "M":
+        # At this point ``t`` is a numeric value associated with the last
+        # command seen.
+        if cmd == "M":  # Absolute move-to command
             if i + 1 < len(flat) and not isinstance(flat[i + 1], str):
-                x, y = flat[i], flat[i + 1]
+                x, y = flat[i], flat[i + 1]  # Set new absolute position
+                current = [(x, y)]  # Start a new subpath list
+                i += 2
+            else:
+                i += 1  # Malformed data; skip value
+        elif cmd == "m":  # Relative move-to command
+            if i + 1 < len(flat) and not isinstance(flat[i + 1], str):
+                x += flat[i]; y += flat[i + 1]  # Update position relative to current point
                 current = [(x, y)]
                 i += 2
             else:
                 i += 1
-        elif cmd == "m":
-            if i + 1 < len(flat) and not isinstance(flat[i + 1], str):
-                x += flat[i]; y += flat[i + 1]
-                current = [(x, y)]
-                i += 2
-            else:
-                i += 1
-        elif cmd == "L":
+        elif cmd == "L":  # Absolute line-to command
             if i + 1 < len(flat) and not isinstance(flat[i + 1], str):
                 x, y = flat[i], flat[i + 1]
-                current.append((x, y))
+                current.append((x, y))  # Append point to current polyline
                 i += 2
             else:
                 i += 1
-        elif cmd == "l":
+        elif cmd == "l":  # Relative line-to command
             if i + 1 < len(flat) and not isinstance(flat[i + 1], str):
                 x += flat[i]; y += flat[i + 1]
                 current.append((x, y))
                 i += 2
             else:
                 i += 1
-        elif cmd == "H":
+        elif cmd == "H":  # Absolute horizontal line
             x = flat[i]; current.append((x, y)); i += 1
-        elif cmd == "h":
+        elif cmd == "h":  # Relative horizontal line
             x += flat[i]; current.append((x, y)); i += 1
-        elif cmd == "V":
+        elif cmd == "V":  # Absolute vertical line
             y = flat[i]; current.append((x, y)); i += 1
-        elif cmd == "v":
+        elif cmd == "v":  # Relative vertical line
             y += flat[i]; current.append((x, y)); i += 1
         else:
-            i += 1
+            i += 1  # Unsupported command; skip token
 
     flush()
     return subpaths
