@@ -28,7 +28,7 @@ import urllib.request
 
 import numpy as np
 import pandas as pd
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, FeatureNotFound
 
 
 DEFAULT_HTML = Path("report.html")  # used if directory lacks .html
@@ -239,7 +239,20 @@ def extract_curve_for_header(hdr):
                         svg_bytes = f.read()
                 else:
                     continue
-                svg_soup = BeautifulSoup(svg_bytes, "xml")
+                try:
+                    svg_soup = BeautifulSoup(svg_bytes, "xml")
+                except FeatureNotFound:
+                    logger.warning(
+                        "lxml parser not found; falling back to html.parser. Install lxml for full XML support."
+                    )
+                    try:
+                        svg_soup = BeautifulSoup(svg_bytes, "html.parser")
+                    except FeatureNotFound:
+                        import xml.etree.ElementTree as ET
+
+                        svg_soup = BeautifulSoup(
+                            ET.tostring(ET.fromstring(svg_bytes)), "html.parser"
+                        )
                 if svg_soup.svg:
                     svgs.append(svg_soup.svg)
             except Exception as exc:
