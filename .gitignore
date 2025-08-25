@@ -1,5 +1,4 @@
-# Ignore generated license and secret key files
-license.key
+# Ignore generated secret key files
 secret.key
 
 # Bytecode
