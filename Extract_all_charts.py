@@ -263,7 +263,13 @@ def extract_curve_for_header_id(soup: BeautifulSoup, hdr_id: str):
     best_pts = []
     best_score = -1
 
-    groups = [g for g in best_svg.find_all("g") if (g.get("id") or "").startswith("gnuplot_plot_")]
+    groups = [
+        g
+        for g in best_svg.find_all("g")
+        if (g.get("id") or "").startswith("gnuplot_plot_") and (g.find("path") or g.find("polyline"))
+    ]
+    if not groups:
+        groups = [g for g in best_svg.find_all("g") if g.find("path") or g.find("polyline")]
     for g in groups:
         # PATH: split in subpath e valuta punti dentro assi
         for p in g.find_all("path"):
