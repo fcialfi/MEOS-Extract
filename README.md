@@ -2,6 +2,8 @@
 
 Script per estrarre i grafici dal report HTML generato da MEOS.
 
+Per una spiegazione dettagliata del codice, consultare [CODE_MANUAL.md](CODE_MANUAL.md).
+
 ## Dipendenze
 
 - Python 3
