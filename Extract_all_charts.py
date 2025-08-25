@@ -25,10 +25,12 @@ from datetime import datetime, timezone, timedelta
 import logging
 import base64
 import urllib.request
+import sys
 
 import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup, FeatureNotFound
+from license_checker import validate_license
 
 
 DEFAULT_HTML = Path("report.html")  # used if directory lacks .html
@@ -725,6 +727,10 @@ def main_cli():
         help="Directory in cui salvare l'Excel (default: cartella corrente)",
     )
     args = parser.parse_args()
+
+    if not validate_license(Path("license.key")):
+        logging.error("Invalid or missing license.")
+        sys.exit(1)
 
     html_path = args.path
     if html_path.is_dir():

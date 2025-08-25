@@ -33,7 +33,19 @@ Un'interfaccia Tkinter è disponibile per elaborare più cartelle.
 
 I log dell'applicazione sono salvati nel file `gui_app.log` nella stessa directory dello script. Se il file non è scrivibile, i messaggi vengono mostrati solo in console.
 
+## File di licenza
+
+Il programma richiede un file `license.key` nella stessa cartella di `Extract_all_charts.py` o `gui_app.py`.
+Il file deve contenere la stringa esadecimale generata con la stessa chiave segreta usata dall'applicazione:
+
+```python
+import hmac, hashlib
+secret = b"demo-secret"  # sostituire con il proprio segreto
+print(hmac.new(secret, b"MEOS-Extract", hashlib.sha256).hexdigest())
+```
+
+Salvare l'output in `license.key`. Se il file manca o la chiave non è valida l'esecuzione termina con errore.
 
 ## Licenza
 
-Questo progetto è distribuito con licenza [MIT](LICENSE). Non è richiesto alcun file di attivazione.
+Questo progetto è distribuito con licenza [MIT](LICENSE).
