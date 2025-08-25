@@ -1,3 +1,15 @@
+"""Tkinter-based front end for processing MEOS HTML reports.
+
+The application guides the user through selecting one or more folders
+containing ``report.html`` files and an output directory in which to write
+the extracted spreadsheets. Two vertically stacked panes divide the main
+window: the upper pane hosts all user controls (output entry, list of input
+folders and buttons) while the lower pane shows a live log of the operations
+performed. Each button is wired to a callback that performs the associated
+action and records messages through :mod:`logging`, which are displayed both
+on the console and inside the GUI.
+"""
+
 from pathlib import Path
 from tkinter import Tk, Listbox, filedialog, StringVar, Text, PanedWindow
 from tkinter import ttk
@@ -22,6 +34,8 @@ logging.basicConfig(
 
 
 class TextHandler(logging.Handler):
+    """Send logging records to a ``tkinter.Text`` widget."""
+
     def __init__(self, widget):
         super().__init__()
         self.widget = widget
@@ -35,26 +49,32 @@ class TextHandler(logging.Handler):
 
 
 def main():
-    root = Tk()
+    # --- Top-level window setup -----------------------------------------
+    root = Tk()  # the root window manages the event loop
     root.title("MEOS Extract GUI")
     root.geometry("600x300")
+    # ``minsize`` prevents users from shrinking the window until widgets overlap
     root.minsize(600, 300)
     root.grid_rowconfigure(0, weight=1)
     root.grid_columnconfigure(0, weight=1)
 
+    # PanedWindow splits the interface vertically into controls and log panel
     paned = PanedWindow(root, orient="vertical")
     paned.grid(row=0, column=0, sticky="nsew")
 
+    # --- Upper pane: user input -----------------------------------------
     main_frame = ttk.Frame(paned)
     paned.add(main_frame, minsize=120)
     main_frame.grid_columnconfigure(0, weight=1)
     for r in range(3):
+        # a non-zero ``minsize`` keeps rows visible when the window shrinks
         main_frame.grid_rowconfigure(r, weight=1, minsize=30)
     main_frame.grid_rowconfigure(3, weight=3)
 
     style = ttk.Style()
     style.configure("Caption.TLabel", font=("Segoe UI", 10, "bold"))
 
+    # ``StringVar`` keeps the Entry text in sync with ``output_dir``
     output_var = StringVar()
     txt_output = ttk.Entry(
         main_frame,
@@ -77,9 +97,13 @@ def main():
     lbl_count = ttk.Label(main_frame)
     lbl_count.grid(row=4, column=0, sticky="ew", padx=5, pady=5)
 
+    # Button bar uses ``pack`` inside its own frame; mixing layout managers
+    # within one container is problematic, but separate frames may use
+    # different managers safely.
     btn_frame = ttk.Frame(main_frame)
     btn_frame.grid(row=5, column=0, sticky="ew", padx=5, pady=5)
 
+    # --- Lower pane: log output -----------------------------------------
     log_frame = ttk.Frame(paned)
     paned.add(log_frame, minsize=80)
     log_frame.grid_rowconfigure(0, weight=1)
@@ -89,37 +113,45 @@ def main():
     log_scroll = ttk.Scrollbar(log_frame, orient="vertical", command=log_panel.yview)
     log_scroll.grid(row=0, column=1, sticky="ns", padx=(0, 5), pady=5)
     log_panel.configure(yscrollcommand=log_scroll.set)
+    # TextHandler redirects ``logging`` events into the Text widget
     text_handler = TextHandler(log_panel)
     text_handler.setFormatter(logging.getLogger().handlers[0].formatter)
     logging.getLogger().addHandler(text_handler)
 
     def update_count():
+        """Refresh the label showing how many folders are queued."""
         n = listbox.size()
         lbl_count.config(
-            text=f"{n} folder{'s' if n != 1 else ''} queued"
+            text=f"{n} folder{'s' if n != 1 else ''} queued",
         )
 
+    # ``output_dir`` is stored in a dict so inner callbacks can mutate it
     output_dir = {"path": None}
 
+    # --- Callback functions ---------------------------------------------
     def add_folder():
+        """Ask the user for a folder and append it to the listbox."""
         folder = filedialog.askdirectory(title="Select folder")
         if folder:
             listbox.insert("end", folder)
             update_count()
 
     def remove_selected():
+        """Remove highlighted folders from the queue."""
         sel = listbox.curselection()
         for idx in reversed(sel):
             listbox.delete(idx)
         update_count()
 
     def select_output():
+        """Prompt for the destination directory and update ``output_var``."""
         folder = filedialog.askdirectory(title="Select output directory")
         if folder:
             output_dir["path"] = Path(folder)
             output_var.set(folder)
 
     def run():
+        """Process each queued folder and log progress to the GUI."""
         if output_dir["path"] is None:
             logging.warning("Output directory not selected")
             return
@@ -160,6 +192,7 @@ def main():
     btn_run.pack(side="left", padx=5, pady=5)
     btn_exit.pack(side="left", padx=5, pady=5)
 
+    # Escape key uses an event binding to close the window
     root.bind("<Escape>", lambda e: root.destroy())
     update_count()
 
@@ -168,3 +201,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
