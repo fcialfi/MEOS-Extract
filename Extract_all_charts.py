@@ -208,14 +208,13 @@ def svg_axes_from_ticks(svg):
     return ticks, (x_tick_px_min, x_tick_px_max, y_tick_px_min, y_tick_px_max)
 
 
-def extract_curve_for_header_id(soup: BeautifulSoup, hdr_id: str):
+def extract_curve_for_header(hdr):
     """
-    Per una sezione (h2/h3) identificata da id (es. '_input_level'), raccoglie gli SVG
-    sottostanti fino al prossimo h2/h3, e sceglie il sottopercorso dati migliore
-    (massimo numero di punti dentro il riquadro assi).
+    Per una sezione (h2/h3) già individuata, raccoglie gli SVG sottostanti fino
+    al prossimo h2/h3 e sceglie il sottopercorso dati migliore (massimo numero
+    di punti dentro il riquadro assi).
     """
-    hdr = soup.find(id=hdr_id)
-    if not hdr:
+    if hdr is None:
         return pd.DataFrame(), pd.DataFrame()
 
     svgs = []
@@ -486,18 +485,26 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
                 elif "report creation time" in label:
                     rep_dt = parse_iso_utc(value)
 
-    # Sezioni target (id degli header h2/h3 del report)
-    targets = [
-        ("_input_level", "Input Level", "input_level"),
-        ("_signalnoise_ratio", "Signal/Noise Ratio", "snr_db"),
-        ("_ebn0", "Eb/N0", "ebn0_db"),
-        ("_carrier_offset", "Carrier Offset", "carrier_offset"),
-        ("_phase_loop_error", "Phase Loop Error", "phase_loop_error"),
-        ("_reed_solomon_frames", "Reed-Solomon Frames", "rs_frames"),
-        ("_frame_error_rate", "Frame Error Rate", "fer"),
-        ("_demodulator_lock_state", "Demodulator Lock State", "lock_state"),
-        ("_fep_lock_state", "FEP Lock State", "fep_lock_state"),
-    ]
+    # Sezioni target: cerca dinamicamente tutti gli header h2/h3 e verifica
+    # se contengono grafici (svg/object) prima del prossimo header.
+    targets = []
+    for hdr in soup.find_all(["h2", "h3"]):
+        title = hdr.get_text(" ", strip=True)
+        if not title:
+            continue
+        cur = hdr
+        has_chart = False
+        while True:
+            cur = cur.find_next_sibling()
+            if cur is None or cur.name in ("h2", "h3"):
+                break
+            if cur.find("svg") or cur.find("object", type="image/svg+xml"):
+                has_chart = True
+                break
+        if not has_chart:
+            continue
+        key = re.sub(r"\W+", "_", title.lower()).strip("_") or "section"
+        targets.append((hdr, key))
 
     # Nome file in base a (prefix, orbit_no) trovati nell'HTML
     prefix, orbit_no = derive_orbit_filename(soup)
@@ -521,8 +528,8 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
         ]).to_excel(wr, sheet_name="__meta__", index=False)
 
         # Per ogni sezione, estrai e salva in un foglio
-        for hdr_id, title, ycol in targets:
-            df, ticks = extract_curve_for_header_id(soup, hdr_id)
+        for hdr, ycol in targets:
+            df, ticks = extract_curve_for_header(hdr)
             df = map_x_to_time(df, start_dt, stop_dt)
             df = map_y_from_ticks(df, ticks, colname=ycol)
 
@@ -540,7 +547,7 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
                     if col in df.columns:
                         df[col] = pd.to_datetime(df[col])
 
-            sheet = safe_sheet_name(title)
+            sheet = safe_sheet_name(ycol)
             if df.empty:
                 pd.DataFrame([{"note": "nessun dato estratto"}]).to_excel(
                     wr, sheet_name=sheet, index=False
@@ -549,7 +556,7 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
                 df.to_excel(wr, sheet_name=sheet, index=False)
 
             # Ticks in foglio dedicato
-            tname = safe_sheet_name(title + " ticks")
+            tname = safe_sheet_name(ycol + "_ticks")
             (ticks if not ticks.empty else pd.DataFrame([{"note": "no ticks"}])).to_excel(
                 wr, sheet_name=tname, index=False
             )
