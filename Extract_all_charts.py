@@ -184,7 +184,7 @@ def svg_axes_from_ticks(svg):
         content = (t.get_text() or "").strip()
         if not content:
             continue
-        is_num = re.fullmatch(r"[-+]?\d+(?:\.\d+)?", content) is not None
+        is_num = re.fullmatch(r"[-+]?\d+(?:[.,]\d+)?(?:\s*(dB|°|deg))?", content) is not None
         is_time = (
             re.fullmatch(r"\d{2}:\d{2}", content) is not None or
             re.fullmatch(r"\d{2}:\d{2}:\d{2}", content) is not None
@@ -358,7 +358,9 @@ def map_y_from_ticks(df: pd.DataFrame, ticks: pd.DataFrame, colname: str):
     if y_ticks.empty:
         df[colname] = np.nan
         return df
-    y_ticks["value"] = y_ticks["text"].astype(float)
+    y_ticks["value"] = y_ticks["text"].apply(
+        lambda s: float(re.sub(r"[^0-9+\-.,]", "", s).replace(",", "."))
+    )
     Y = np.vstack([y_ticks["y_px"].values, np.ones(len(y_ticks))]).T
     a, b = np.linalg.lstsq(Y, y_ticks["value"].values, rcond=None)[0]
     df[colname] = a * df["y_px"] + b
