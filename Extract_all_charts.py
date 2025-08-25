@@ -34,6 +34,7 @@ from bs4 import BeautifulSoup
 DEFAULT_HTML = Path("report.html")  # used if directory lacks .html
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 # -------------------- Utilities --------------------
@@ -226,27 +227,23 @@ def extract_curve_for_header(hdr):
             svgs.append(el)
         elif name == "object" and el.get("type") == "image/svg+xml":
             data = el.get("data", "")
-            if data.startswith("data:image/svg+xml;base64,"):
-                try:
-                    svg_bytes = base64.b64decode(data.split(",", 1)[1])
-                    svg_soup = BeautifulSoup(svg_bytes, "xml")
-                    if svg_soup.svg:
-                        svgs.append(svg_soup.svg)
-                except Exception:
-                    pass
-            elif data:
-                try:
-                    if data.startswith("http://") or data.startswith("https://"):
-                        with urllib.request.urlopen(data) as resp:
-                            svg_bytes = resp.read()
-                    else:
-                        with open(data, "rb") as f:
-                            svg_bytes = f.read()
-                    svg_soup = BeautifulSoup(svg_bytes, "xml")
-                    if svg_soup.svg:
-                        svgs.append(svg_soup.svg)
-                except Exception:
-                    pass
+            m = re.match(r"^data:image/svg\+xml(;charset=[^;]+)?;base64,(.*)$", data, re.I)
+            try:
+                if m:  # Base64 inline data
+                    svg_bytes = base64.b64decode(m.group(2))
+                elif data.startswith(("http://", "https://")):  # Remote file
+                    with urllib.request.urlopen(data) as resp:
+                        svg_bytes = resp.read()
+                elif data:  # Local file path
+                    with open(data, "rb") as f:
+                        svg_bytes = f.read()
+                else:
+                    continue
+                svg_soup = BeautifulSoup(svg_bytes, "xml")
+                if svg_soup.svg:
+                    svgs.append(svg_soup.svg)
+            except Exception as exc:
+                logger.warning("Failed to load SVG from %s: %s", data, exc)
     if not svgs:
         return pd.DataFrame(), pd.DataFrame()
 
