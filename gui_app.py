@@ -11,10 +11,9 @@ on the console and inside the GUI.
 """
 
 from pathlib import Path
-from tkinter import Tk, Listbox, filedialog, StringVar, Text, PanedWindow
+from tkinter import Tk, Listbox, filedialog, StringVar, Text, PanedWindow, messagebox
 from tkinter import ttk
 import logging
-import sys
 
 from Extract_all_charts import process_html
 from license_checker import validate_license
@@ -52,8 +51,8 @@ class TextHandler(logging.Handler):
 
 def main():
     if not validate_license(Path("license.key")):
-        logging.error("Invalid or missing license.")
-        sys.exit(1)
+        messagebox.showerror("License error", "Invalid or missing license.")
+        return
 
     # --- Top-level window setup -----------------------------------------
     root = Tk()  # the root window manages the event loop

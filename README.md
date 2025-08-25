@@ -46,7 +46,8 @@ secret = b"demo-secret"  # sostituire con il proprio segreto
 print(hmac.new(secret, b"MEOS-Extract", hashlib.sha256).hexdigest())
 ```
 
-Salvare l'output in `license.key`. Se il file manca o la chiave non è valida l'esecuzione termina con errore.
+Salvare l'output in `license.key`. Se il file manca o la chiave non è valida
+l'esecuzione termina mostrando "Invalid or missing license".
 
 ## Licenza
 
