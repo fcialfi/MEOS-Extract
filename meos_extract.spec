@@ -9,7 +9,7 @@ project_root = Path(__file__).resolve().parent if "__file__" in globals() else P
 
 # ---------------- CLI executable ----------------
 a_cli = Analysis(
-    ['extract_all_charts.py'],          # main CLI script
+    ['Extract_all_charts.py'],          # main CLI script
     pathex=[str(project_root)],
     binaries=[],
     datas=[('license_checker.py', '.')],
