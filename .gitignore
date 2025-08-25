@@ -1,0 +1,7 @@
+# Ignore generated license and secret key files
+license.key
+secret.key
+
+# Bytecode
+__pycache__/
+*/__pycache__/
