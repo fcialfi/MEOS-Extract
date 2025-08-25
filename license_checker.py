@@ -58,3 +58,16 @@ def validate_license(path: Path) -> bool:
         return False
 
     return date.today() <= exp_date
+
+
+_VALIDATED = False
+
+
+def ensure_valid_license() -> None:
+    """Exit with ``RuntimeError`` if ``license.key`` is missing or invalid."""
+    global _VALIDATED
+    if _VALIDATED:
+        return
+    if not validate_license(Path("license.key")):
+        raise RuntimeError("Invalid or missing license.")
+    _VALIDATED = True

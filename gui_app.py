@@ -14,8 +14,10 @@ from pathlib import Path
 from tkinter import Tk, Listbox, filedialog, StringVar, Text, PanedWindow
 from tkinter import ttk
 import logging
+import sys
 
 from Extract_all_charts import process_html
+from license_checker import validate_license
 
 
 LOG_PATH = Path(__file__).resolve().with_name("gui_app.log")
@@ -49,6 +51,10 @@ class TextHandler(logging.Handler):
 
 
 def main():
+    if not validate_license(Path("license.key")):
+        logging.error("Invalid or missing license.")
+        sys.exit(1)
+
     # --- Top-level window setup -----------------------------------------
     root = Tk()  # the root window manages the event loop
     root.title("MEOS Extract GUI")
