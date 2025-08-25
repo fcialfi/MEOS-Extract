@@ -23,6 +23,8 @@ import argparse
 import re
 from datetime import datetime, timezone, timedelta
 import logging
+import base64
+import urllib.request
 
 import numpy as np
 import pandas as pd
@@ -223,6 +225,30 @@ def extract_curve_for_header_id(soup: BeautifulSoup, hdr_id: str):
         if cur is None or cur.name in ("h2", "h3"):
             break
         svgs.extend(cur.find_all("svg"))
+        objects = cur.find_all("object", type="image/svg+xml")
+        for obj in objects:
+            data = obj.get("data", "")
+            if data.startswith("data:image/svg+xml;base64,"):
+                try:
+                    svg_bytes = base64.b64decode(data.split(",", 1)[1])
+                    svg_soup = BeautifulSoup(svg_bytes, "xml")
+                    if svg_soup.svg:
+                        svgs.append(svg_soup.svg)
+                except Exception:
+                    pass
+            elif data:
+                try:
+                    if data.startswith("http://") or data.startswith("https://"):
+                        with urllib.request.urlopen(data) as resp:
+                            svg_bytes = resp.read()
+                    else:
+                        with open(data, "rb") as f:
+                            svg_bytes = f.read()
+                    svg_soup = BeautifulSoup(svg_bytes, "xml")
+                    if svg_soup.svg:
+                        svgs.append(svg_soup.svg)
+                except Exception:
+                    pass
     if not svgs:
         return pd.DataFrame(), pd.DataFrame()
 
