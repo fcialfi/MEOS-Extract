@@ -49,6 +49,9 @@ print(hmac.new(secret, b"MEOS-Extract", hashlib.sha256).hexdigest())
 Salvare l'output in `license.key`. Se il file manca o la chiave non è valida
 l'esecuzione termina mostrando "Invalid or missing license".
 
+**Nota:** al momento il controllo della licenza è disattivato tramite la variabile
+d'ambiente `MEOS_SKIP_LICENSE` ed è previsto che venga riabilitato in seguito.
+
 ## Licenza
 
 Questo progetto è distribuito con licenza [MIT](LICENSE).
