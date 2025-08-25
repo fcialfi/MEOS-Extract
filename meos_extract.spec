@@ -1,18 +1,20 @@
 # meos_extract.spec
-# Generate the executables with:  pyinstaller meos_extract.spec
+# Build with:  pyinstaller meos_extract.spec
 
 from pathlib import Path
-import sys
 block_cipher = None
+
+# Resolve project root even if __file__ is undefined
 project_root = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
 
-# --- CLI analysis/executable ---
+# ---------------- CLI executable ----------------
 a_cli = Analysis(
-    ['Extract_all_charts.py'],
+    ['extract_all_charts.py'],          # main CLI script
     pathex=[str(project_root)],
     binaries=[],
-    datas=[('license.key', '.')],
-    hiddenimports=['bs4', 'pandas', 'numpy', 'openpyxl'],  # add others if needed
+    datas=[('license.key', '.'),        # bundle sample license
+           ('license_checker.py', '.')],
+    hiddenimports=['bs4', 'pandas', 'numpy', 'openpyxl'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -32,15 +34,16 @@ exe_cli = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=True,        # console app
+    console=True,          # console interface
 )
 
-# --- GUI analysis/executable ---
+# ---------------- GUI executable ----------------
 a_gui = Analysis(
-    ['gui_app.py'],
+    ['gui_app.py'],                       # Tkinter front-end
     pathex=[str(project_root)],
     binaries=[],
-    datas=[('license.key', '.')],
+    datas=[('license.key', '.'),          # same extras for GUI build
+           ('license_checker.py', '.')],
     hiddenimports=['bs4', 'pandas', 'numpy', 'openpyxl'],
     hookspath=[],
     hooksconfig={},
@@ -61,10 +64,10 @@ exe_gui = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,       # windowed app
+    console=False,         # windowed interface
 )
 
-# --- Collect both executables into one dist folder ---
+# -------------- Final bundle ----------------
 coll = COLLECT(
     exe_cli,
     exe_gui,
