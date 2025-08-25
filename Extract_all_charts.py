@@ -23,7 +23,6 @@ import argparse
 import re
 from datetime import datetime, timezone, timedelta
 import logging
-import os
 import base64
 import urllib.request
 import sys
@@ -31,7 +30,6 @@ import sys
 import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup, FeatureNotFound
-from license_checker import ensure_valid_license
 
 
 DEFAULT_HTML = Path("report.html")  # used if directory lacks .html
@@ -589,17 +587,6 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
     Path
         Percorso del file Excel creato.
     """
-    # TODO: re-enable mandatory license validation
-    if not os.environ.get("MEOS_SKIP_LICENSE"):
-        try:
-            ensure_valid_license()
-        except RuntimeError as exc:
-            logging.error("License check failed: %s", exc)
-            sys.exit(1)
-    else:  # pragma: no cover - dev only
-        logger.warning(
-            "License check skipped; TODO: restore license validation"
-        )
     html = Path(html_path)
     if not html.exists():
         alt = Path(__file__).resolve().parent / html.name

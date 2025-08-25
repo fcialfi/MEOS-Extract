@@ -14,10 +14,8 @@ from pathlib import Path
 from tkinter import Tk, Listbox, filedialog, StringVar, Text, PanedWindow, messagebox
 from tkinter import ttk
 import logging
-import os
 
 from Extract_all_charts import process_html
-from license_checker import validate_license
 
 
 LOG_PATH = Path(__file__).resolve().with_name("gui_app.log")
@@ -51,15 +49,7 @@ class TextHandler(logging.Handler):
 
 
 def main():
-    # TODO: re-enable mandatory license validation
-    if not os.environ.get("MEOS_SKIP_LICENSE"):
-        if not validate_license(Path("license.key")):
-            messagebox.showerror("License error", "Invalid or missing license.")
-            return
-    else:  # pragma: no cover - dev only
-        logging.warning(
-            "License check skipped; TODO: restore license validation"
-        )
+    # License validation removed
 
     # --- Top-level window setup -----------------------------------------
     root = Tk()  # the root window manages the event loop
