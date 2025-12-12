@@ -14,6 +14,7 @@ from pathlib import Path
 from tkinter import Tk, Listbox, filedialog, StringVar, Text, PanedWindow, messagebox
 from tkinter import ttk
 import logging
+import math
 
 from Extract_all_charts import process_html
 
@@ -65,13 +66,16 @@ def main():
     paned.grid(row=0, column=0, sticky="nsew")
 
     # --- Upper pane: user input -----------------------------------------
-    main_frame = ttk.Frame(paned)
-    paned.add(main_frame, minsize=120)
-    main_frame.grid_columnconfigure(0, weight=1)
+    notebook = ttk.Notebook(paned)
+    paned.add(notebook, minsize=120)
+
+    extract_frame = ttk.Frame(notebook)
+    notebook.add(extract_frame, text="Estrazione")
+    extract_frame.grid_columnconfigure(0, weight=1)
     for r in range(3):
         # a non-zero ``minsize`` keeps rows visible when the window shrinks
-        main_frame.grid_rowconfigure(r, weight=1, minsize=30)
-    main_frame.grid_rowconfigure(3, weight=3)
+        extract_frame.grid_rowconfigure(r, weight=1, minsize=30)
+    extract_frame.grid_rowconfigure(3, weight=3)
 
     style = ttk.Style()
     style.configure("Caption.TLabel", font=("Segoe UI", 10, "bold"))
@@ -79,31 +83,111 @@ def main():
     # ``StringVar`` keeps the Entry text in sync with ``output_dir``
     output_var = StringVar()
     txt_output = ttk.Entry(
-        main_frame,
+        extract_frame,
         textvariable=output_var,
         state="readonly",
         width=60,
     )
-    lbl_output = ttk.Label(main_frame, text="Output folder:", style="Caption.TLabel")
+    lbl_output = ttk.Label(extract_frame, text="Output folder:", style="Caption.TLabel")
     lbl_output.grid(row=0, column=0, sticky="w", padx=5, pady=(0, 2))
     txt_output.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
 
-    lbl_input = ttk.Label(main_frame, text="Input folders:", style="Caption.TLabel")
+    lbl_input = ttk.Label(extract_frame, text="Input folders:", style="Caption.TLabel")
     lbl_input.grid(row=2, column=0, sticky="w", padx=5, pady=(10, 2))
-    listbox = Listbox(main_frame, width=60, height=8, selectmode="extended")
+    listbox = Listbox(extract_frame, width=60, height=8, selectmode="extended")
     listbox.grid(row=3, column=0, sticky="nsew", padx=(5, 0), pady=5)
-    list_scroll = ttk.Scrollbar(main_frame, orient="vertical", command=listbox.yview)
+    list_scroll = ttk.Scrollbar(extract_frame, orient="vertical", command=listbox.yview)
     list_scroll.grid(row=3, column=1, sticky="ns", padx=(0, 5), pady=5)
     listbox.configure(yscrollcommand=list_scroll.set)
 
-    lbl_count = ttk.Label(main_frame)
+    lbl_count = ttk.Label(extract_frame)
     lbl_count.grid(row=4, column=0, sticky="ew", padx=5, pady=5)
 
     # Button bar uses ``pack`` inside its own frame; mixing layout managers
     # within one container is problematic, but separate frames may use
     # different managers safely.
-    btn_frame = ttk.Frame(main_frame)
+    btn_frame = ttk.Frame(extract_frame)
     btn_frame.grid(row=5, column=0, sticky="ew", padx=5, pady=5)
+
+    # --- Link budget tab -----------------------------------------------
+    budget_frame = ttk.Frame(notebook)
+    notebook.add(budget_frame, text="Link budget uplink")
+    for r in range(11):
+        budget_frame.grid_rowconfigure(r, weight=1, minsize=28)
+    budget_frame.grid_columnconfigure(1, weight=1)
+
+    lbl_budget = ttk.Label(budget_frame, text="Calcolo link budget (uplink)", style="Caption.TLabel")
+    lbl_budget.grid(row=0, column=0, columnspan=2, sticky="w", padx=5, pady=(10, 2))
+
+    def add_field(row, text, default):
+        label = ttk.Label(budget_frame, text=text)
+        label.grid(row=row, column=0, sticky="w", padx=5, pady=2)
+        var = StringVar(value=str(default))
+        entry = ttk.Entry(budget_frame, textvariable=var)
+        entry.grid(row=row, column=1, sticky="ew", padx=5, pady=2)
+        return var
+
+    freq_var = add_field(1, "Frequenza (GHz)", 8.0)
+    dist_var = add_field(2, "Distanza (km)", 38000)
+    tx_power_var = add_field(3, "Potenza TX (dBW)", 20)
+    tx_gain_var = add_field(4, "Guadagno antenna TX (dBi)", 35)
+    tx_losses_var = add_field(5, "Perdite TX (dB)", 1.0)
+    rx_gain_var = add_field(6, "Guadagno antenna RX (dBi)", 45)
+    rx_losses_var = add_field(7, "Perdite RX (dB)", 1.5)
+    required_var = add_field(8, "Sensibilit\u00e0 richiesta (dBW)", -125)
+
+    result_var = StringVar(
+        value=(
+            "Inserisci i parametri e premi \"Calcola\" per ottenere: "
+            "EIRP, perdita di percorso (FSPL), potenza ricevuta e margine rispetto alla sensibilit\u00e0."
+        )
+    )
+    result_lbl = ttk.Label(
+        budget_frame,
+        textvariable=result_var,
+        wraplength=520,
+        justify="left",
+    )
+    result_lbl.grid(row=9, column=0, columnspan=2, sticky="ew", padx=5, pady=(10, 5))
+
+    def _parse_value(var, name):
+        try:
+            return float(var.get())
+        except ValueError:
+            messagebox.showerror("Valore non valido", f"Inserisci un numero per {name}")
+            raise
+
+    def calculate_link_budget():
+        """Calcola un link budget semplificato per l'uplink."""
+        try:
+            freq = _parse_value(freq_var, "frequenza")
+            distance = _parse_value(dist_var, "distanza")
+            tx_power = _parse_value(tx_power_var, "potenza TX")
+            tx_gain = _parse_value(tx_gain_var, "guadagno TX")
+            tx_losses = _parse_value(tx_losses_var, "perdite TX")
+            rx_gain = _parse_value(rx_gain_var, "guadagno RX")
+            rx_losses = _parse_value(rx_losses_var, "perdite RX")
+            required = _parse_value(required_var, "sensibilit\u00e0")
+        except ValueError:
+            return
+
+        # Free-space path loss using distance in km and frequency in GHz
+        fspl = 92.45 + 20 * math.log10(distance) + 20 * math.log10(freq)
+        eirp = tx_power + tx_gain - tx_losses
+        received_power = eirp + rx_gain - rx_losses - fspl
+        margin = received_power - required
+
+        msg_lines = [
+            f"EIRP: {eirp:.2f} dBW",
+            f"FSPL: {fspl:.2f} dB",
+            f"Potenza ricevuta: {received_power:.2f} dBW",
+            f"Margine rispetto alla sensibilit\u00e0: {margin:.2f} dB",
+        ]
+        result_var.set("\n".join(msg_lines))
+        logging.info("Link budget uplink calcolato: %s", "; ".join(msg_lines))
+
+    btn_budget = ttk.Button(budget_frame, text="Calcola", command=calculate_link_budget)
+    btn_budget.grid(row=10, column=0, columnspan=2, sticky="e", padx=5, pady=5)
 
     # --- Lower pane: log output -----------------------------------------
     log_frame = ttk.Frame(paned)
