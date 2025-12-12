@@ -214,7 +214,11 @@ def main():
         """Refresh the label showing how many folders are queued."""
         n = listbox.size()
         lbl_count.config(
-            text=f"{n} folder{'s' if n != 1 else ''} queued",
+            text=(
+                "Nessuna cartella selezionata"
+                if n == 0
+                else f"{n} cartella" + ("" if n == 1 else "e") + " in coda"
+            ),
         )
 
     # ``output_dir`` is stored in a dict so inner callbacks can mutate it
@@ -246,6 +250,18 @@ def main():
         """Process each queued folder and log progress to the GUI."""
         if output_dir["path"] is None:
             logging.warning("Output directory not selected")
+            messagebox.showwarning(
+                "Cartella di output mancante",
+                "Seleziona una cartella di destinazione prima di procedere.",
+            )
+            return
+
+        if listbox.size() == 0:
+            logging.warning("No input folders queued")
+            messagebox.showwarning(
+                "Nessuna cartella da elaborare",
+                "Aggiungi almeno una cartella contenente i report HTML.",
+            )
             return
         saved = []
         for i in range(listbox.size()):
@@ -269,6 +285,14 @@ def main():
                 logging.exception("Error processing %s", folder)
                 return
         logging.info("Completed: created %d files", len(saved))
+        messagebox.showinfo(
+            "Elaborazione completata",
+            (
+                "Nessun file creato. Controlla i log per eventuali problemi."
+                if not saved
+                else f"Creati {len(saved)} file nella cartella di output."
+            ),
+        )
 
     btn_add = ttk.Button(btn_frame, text="Add folder", command=add_folder)
     btn_remove = ttk.Button(btn_frame, text="Remove selected", command=remove_selected)
