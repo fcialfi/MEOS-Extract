@@ -65,9 +65,15 @@ def main():
     paned = PanedWindow(root, orient="vertical")
     paned.grid(row=0, column=0, sticky="nsew")
 
+    # Wrap the notebook in a frame so geometry management is explicit
+    controls_frame = ttk.Frame(paned)
+    controls_frame.grid_rowconfigure(0, weight=1)
+    controls_frame.grid_columnconfigure(0, weight=1)
+    paned.add(controls_frame, minsize=120)
+
     # --- Upper pane: user input -----------------------------------------
-    notebook = ttk.Notebook(paned)
-    paned.add(notebook, minsize=120)
+    notebook = ttk.Notebook(controls_frame)
+    notebook.grid(row=0, column=0, sticky="nsew")
 
     extract_frame = ttk.Frame(notebook)
     notebook.add(extract_frame, text="Estrazione")
