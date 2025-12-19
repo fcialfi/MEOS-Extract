@@ -164,20 +164,14 @@ def main():
             if not html_files:
                 logging.warning("No HTML file in %s", folder)
                 continue
-            if len(html_files) > 1:
-                logging.warning(
-                    "Multiple HTML files in %s; using %s",
-                    folder,
-                    html_files[0].name,
-                )
-            report = html_files[0]
-            try:
-                out = process_html(report, output_dir["path"])
-                logging.info("Saved: %s", out)
-                saved.append(out)
-            except Exception:
-                logging.exception("Error processing %s", folder)
-                return
+            for report in html_files:
+                try:
+                    out = process_html(report, output_dir["path"])
+                    logging.info("Saved: %s", out)
+                    saved.append(out)
+                except Exception:
+                    logging.exception("Error processing %s", report)
+                    return
         logging.info("Completed: created %d files", len(saved))
 
     btn_add = ttk.Button(btn_frame, text="Add folder", command=add_folder)
@@ -203,4 +197,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
