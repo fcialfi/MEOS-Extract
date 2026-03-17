@@ -906,6 +906,29 @@ def _spherical_to_cartesian(az_deg, el_deg):
     return x, y, z
 
 
+def _build_base_track(az: pd.DataFrame, el: pd.DataFrame, n_points: int = 500):
+    """Build a smooth antenna base track from azimuth/elevation time series."""
+    t0 = max(float(az["t_sec_rel"].min()), float(el["t_sec_rel"].min()))
+    t1 = min(float(az["t_sec_rel"].max()), float(el["t_sec_rel"].max()))
+    if t1 <= t0:
+        return np.array([]), np.array([])
+
+    az_s = az.sort_values("t_sec_rel").drop_duplicates("t_sec_rel")
+    el_s = el.sort_values("t_sec_rel").drop_duplicates("t_sec_rel")
+    if len(az_s) < 2 or len(el_s) < 2:
+        return np.array([]), np.array([])
+
+    t = np.linspace(t0, t1, n_points)
+    az_t = az_s["t_sec_rel"].to_numpy(dtype=float)
+    el_t = el_s["t_sec_rel"].to_numpy(dtype=float)
+
+    az_unwrapped = np.unwrap(np.deg2rad(az_s["azimuth"].to_numpy(dtype=float)))
+    az_interp = np.rad2deg(np.interp(t, az_t, az_unwrapped)) % 360.0
+    el_interp = np.interp(t, el_t, el_s["elevation"].to_numpy(dtype=float))
+    el_interp = np.clip(el_interp, 0.0, 90.0)
+    return az_interp, el_interp
+
+
 def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selectors):
     """Generate polar color plots (metric over azimuth/elevation)."""
     wanted = {s.lower() for s in (selectors or [])}
@@ -978,12 +1001,17 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
             logger.warning("Polar/3D plot '%s' skipped: insufficient valid angle samples", metric_col)
             continue
 
-        # 2D polar with explicit trajectory and elevation-normalized radius.
+        # 2D polar with smooth base trajectory + metric overlays.
         theta = np.deg2rad(az_vals)
         radius_norm = (90.0 - el_vals) / 90.0
+        track_az, track_el = _build_base_track(az_tmp, el_tmp)
+        track_theta = np.deg2rad(track_az) if len(track_az) else np.array([])
+        track_radius = (90.0 - track_el) / 90.0 if len(track_el) else np.array([])
+
         fig_p, ax_p = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(8, 6))
+        if len(track_theta):
+            ax_p.plot(track_theta, track_radius, color="black", linewidth=1.4, alpha=0.9, zorder=1, label="Track")
         sc_p = ax_p.scatter(theta, radius_norm, c=metric_vals, cmap="turbo", s=26, zorder=3)
-        ax_p.plot(theta, radius_norm, color="black", linewidth=1.2, alpha=0.8, zorder=2, label="Track")
         ax_p.scatter(theta[:1], radius_norm[:1], c="white", edgecolors="black", s=55, zorder=4, label="Start")
         ax_p.scatter(theta[-1:], radius_norm[-1:], c="black", s=45, zorder=4, label="End")
         ax_p.set_theta_zero_location("N")
@@ -1003,12 +1031,15 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
         plt.close(fig_p)
         artifacts.append({"plot": metric_col, "kind": "polar", "path": str(polar_path)})
 
-        # 3D sky-view in Cartesian coordinates (continuous at azimuth wrap 0°/360°).
+        # 3D sky-view: smooth base track + metric overlay points.
         x, y, z = _spherical_to_cartesian(az_vals, el_vals)
+        tx, ty, tz = _spherical_to_cartesian(track_az, track_el) if len(track_az) else (np.array([]), np.array([]), np.array([]))
+
         fig3d = plt.figure(figsize=(9, 7))
         ax3d = fig3d.add_subplot(111, projection="3d")
+        if len(tx):
+            ax3d.plot(tx, ty, tz, color="black", alpha=0.65, linewidth=1.2)
         sc3d = ax3d.scatter(x, y, z, c=metric_vals, cmap="turbo", s=22, depthshade=False)
-        ax3d.plot(x, y, z, color="black", alpha=0.55, linewidth=1.1)
         ax3d.scatter([x[0]], [y[0]], [z[0]], c="white", edgecolors="black", s=60)
         ax3d.scatter([x[-1]], [y[-1]], [z[-1]], c="black", s=50)
         ax3d.set_title(f"{metric_col} 3D sky track")
@@ -1039,26 +1070,79 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
     return artifacts
 
 
+def _numeric_tick_groups(ticks: pd.DataFrame):
+    """Split numeric ticks into one or two X-side groups (for dual Y axes)."""
+    if ticks is None or ticks.empty:
+        return []
+    num = ticks[ticks.get("kind") == "num"].copy()
+    if num.empty:
+        return []
+    num["val"] = num["text"].apply(lambda t: float(re.sub(r"[^0-9+\-.,]", "", str(t)).replace(",", ".")))
+    num = num.dropna(subset=["x_px", "y_px", "val"])
+    if len(num) < 2:
+        return [num]
+
+    xm = float(num["x_px"].median())
+    left = num[num["x_px"] <= xm]
+    right = num[num["x_px"] > xm]
+    groups = []
+    if len(left) >= 2:
+        groups.append(left)
+    if len(right) >= 2:
+        groups.append(right)
+    if not groups:
+        groups.append(num)
+    return groups
+
+
+def _map_curve_with_ticks_group(raw_df: pd.DataFrame, tick_group: pd.DataFrame, out_col: str):
+    """Map y_px to values using a specific numeric tick group."""
+    if raw_df.empty or tick_group is None or tick_group.empty:
+        tmp = raw_df.copy()
+        tmp[out_col] = np.nan
+        return tmp
+    Y = np.vstack([tick_group["y_px"].values, np.ones(len(tick_group))]).T
+    a, b = np.linalg.lstsq(Y, tick_group["val"].values, rcond=None)[0]
+    tmp = raw_df.copy()
+    tmp[out_col] = a * tmp["y_px"] + b
+    return tmp
+
+
 def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
     """Build a single antenna dataframe with azimuth and elevation columns."""
     mapped = []
     for idx, (_series_name, raw_df, ticks) in enumerate(curves, start=1):
-        tmp_col = f"value_{idx}"
-        df = map_x_to_time(raw_df.copy(), start_dt, stop_dt)
-        df = map_y_from_ticks(df, ticks, colname=tmp_col)
-        if tmp_col not in df or df.empty:
+        base = map_x_to_time(raw_df.copy(), start_dt, stop_dt)
+        if base.empty:
             continue
-        vals = pd.to_numeric(df[tmp_col], errors="coerce")
-        if vals.dropna().empty:
-            continue
-        mapped.append((idx, df, vals))
+
+        candidates = []
+        # candidate 1: all numeric ticks together
+        all_num = ticks[ticks.get("kind") == "num"].copy() if ticks is not None and not ticks.empty else pd.DataFrame()
+        if not all_num.empty:
+            all_num["val"] = all_num["text"].apply(lambda t: float(re.sub(r"[^0-9+\-.,]", "", str(t)).replace(",", ".")))
+            all_num = all_num.dropna(subset=["x_px", "y_px", "val"])
+            if len(all_num) >= 2:
+                dfa = _map_curve_with_ticks_group(base, all_num, f"value_{idx}_all")
+                candidates.append((dfa, f"value_{idx}_all"))
+
+        # candidate 2..n: per-side numeric tick groups (dual-axis charts)
+        for g_i, grp in enumerate(_numeric_tick_groups(ticks), start=1):
+            dfg = _map_curve_with_ticks_group(base, grp, f"value_{idx}_g{g_i}")
+            candidates.append((dfg, f"value_{idx}_g{g_i}"))
+
+        for cand_df, cand_col in candidates:
+            vals = pd.to_numeric(cand_df[cand_col], errors="coerce")
+            if vals.dropna().empty:
+                continue
+            mapped.append((idx, cand_df, vals, cand_col))
 
     if len(mapped) < 2:
         return None
 
     # choose azimuth/elevation with value-domain aware scoring.
     scored = []
-    for idx, df, vals in mapped:
+    for idx, df, vals, val_col in mapped:
         v = vals.dropna()
         vmin, vmax = float(v.min()), float(v.max())
         vrng = float(vmax - vmin)
@@ -1066,17 +1150,19 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
         frac_el = float(((v >= -2) & (v <= 92)).mean())
         az_score = frac_az + (1.0 if vmax > 120 else 0.0) + 0.002 * vrng
         el_score = frac_el + (1.0 if vmax <= 95 else -0.5) - 0.001 * max(0.0, vrng - 90.0)
-        scored.append((idx, df, az_score, el_score, vmin, vmax, vrng))
+        scored.append((idx, df, val_col, az_score, el_score, vmin, vmax, vrng))
 
-    az_item = max(scored, key=lambda t: t[2])
+    az_item = max(scored, key=lambda t: t[3])
     el_candidates = [t for t in scored if t[0] != az_item[0]]
-    el_item = max(el_candidates, key=lambda t: t[3])
+    if not el_candidates:
+        # fallback to different mapping candidate from same raw curve
+        el_candidates = [t for t in scored if t[2] != az_item[2]]
+        if not el_candidates:
+            return None
+    el_item = max(el_candidates, key=lambda t: t[4])
 
-    az_idx, az_df = az_item[0], az_item[1]
-    el_idx, el_df = el_item[0], el_item[1]
-
-    az_col = f"value_{az_idx}"
-    el_col = f"value_{el_idx}"
+    az_idx, az_df, az_col = az_item[0], az_item[1], az_item[2]
+    el_idx, el_df, el_col = el_item[0], el_item[1], el_item[2]
 
     az = az_df[["t_sec_rel", "time_HH:MM:SS", "time_iso_utc", "x_px", "y_px", az_col]].copy()
     az = az.rename(columns={"x_px": "x_px_az", "y_px": "y_px_az", az_col: f"{ycol}_azimuth"})
