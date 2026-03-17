@@ -316,21 +316,34 @@ def svg_axes_from_ticks(svg):
             re.fullmatch(r"\d{2}:\d{2}", content) is not None or
             re.fullmatch(r"\d{2}:\d{2}:\d{2}", content) is not None
         )
-        if not (is_num or is_time):
+        is_lock_state = re.fullmatch(
+            r"(?i)(lock(?:ed)?|unlock(?:ed)?|no\s*lock|out\s*of\s*lock|loss\s*of\s*lock)",
+            content,
+        ) is not None
+        if not (is_num or is_time or is_lock_state):
             continue
         Sx, Sy, Tx, Ty = cumulative_transform(t)
         x_px, y_px = apply_tr(0.0, 0.0, Sx, Sy, Tx, Ty)
-        rows.append({"text": content, "x_px": x_px, "y_px": y_px, "kind": "num" if is_num else "time"})
+        if is_num:
+            kind = "num"
+        elif is_time:
+            kind = "time"
+        else:
+            kind = "state"
+        rows.append({"text": content, "x_px": x_px, "y_px": y_px, "kind": kind})
 
     ticks = pd.DataFrame(rows)
 
     if ticks.empty:
         return ticks, (None, None, None, None)
 
-    x_tick_px_min = ticks.loc[ticks["kind"] == "time", "x_px"].min()
-    x_tick_px_max = ticks.loc[ticks["kind"] == "time", "x_px"].max()
-    y_tick_px_min = ticks.loc[ticks["kind"] == "num", "y_px"].min()
-    y_tick_px_max = ticks.loc[ticks["kind"] == "num", "y_px"].max()
+    x_ticks = ticks.loc[ticks["kind"] == "time", "x_px"]
+    y_ticks = ticks.loc[ticks["kind"] == "num", "y_px"]
+
+    x_tick_px_min = x_ticks.min() if not x_ticks.empty else None
+    x_tick_px_max = x_ticks.max() if not x_ticks.empty else None
+    y_tick_px_min = y_ticks.min() if not y_ticks.empty else None
+    y_tick_px_max = y_ticks.max() if not y_ticks.empty else None
 
     return ticks, (x_tick_px_min, x_tick_px_max, y_tick_px_min, y_tick_px_max)
 
@@ -404,6 +417,9 @@ def extract_curve_for_header(hdr):
     ]
     if not groups:
         groups = [g for g in best_svg.find_all("g") if g.find("path") or g.find("polyline")]
+    def has_missing_axes(values):
+        return any(v is None or (isinstance(v, float) and np.isnan(v)) for v in values)
+
     for g in groups:
         # PATH: split in subpath e valuta punti dentro assi
         for p in g.find_all("path"):
@@ -413,7 +429,7 @@ def extract_curve_for_header(hdr):
             Sx, Sy, Tx, Ty = cumulative_transform(p)
             for sp in parse_path_subpaths(d):
                 pts = [apply_tr(x, y, Sx, Sy, Tx, Ty) for x, y in sp]
-                if None in (x_min_tick, x_max_tick, y_min_tick, y_max_tick):
+                if has_missing_axes((x_min_tick, x_max_tick, y_min_tick, y_max_tick)):
                     score = len(pts)
                 else:
                     m = 2.0
@@ -440,7 +456,7 @@ def extract_curve_for_header(hdr):
             Sx, Sy, Tx, Ty = cumulative_transform(pl)
             pts = [apply_tr(x, y, Sx, Sy, Tx, Ty) for x, y in pts_local]
 
-            if None in (x_min_tick, x_max_tick, y_min_tick, y_max_tick):
+            if has_missing_axes((x_min_tick, x_max_tick, y_min_tick, y_max_tick)):
                 score = len(pts)
             else:
                 m = 2.0
@@ -490,15 +506,34 @@ def map_y_from_ticks(df: pd.DataFrame, ticks: pd.DataFrame, colname: str):
         df[colname] = np.nan
         return df
     y_ticks = ticks[ticks["kind"] == "num"].copy()
-    if y_ticks.empty:
-        df[colname] = np.nan
+    if not y_ticks.empty:
+        y_ticks["value"] = y_ticks["text"].apply(
+            lambda s: float(re.sub(r"[^0-9+\-.,]", "", s).replace(",", "."))
+        )
+        Y = np.vstack([y_ticks["y_px"].values, np.ones(len(y_ticks))]).T
+        a, b = np.linalg.lstsq(Y, y_ticks["value"].values, rcond=None)[0]
+        df[colname] = a * df["y_px"] + b
         return df
-    y_ticks["value"] = y_ticks["text"].apply(
-        lambda s: float(re.sub(r"[^0-9+\-.,]", "", s).replace(",", "."))
-    )
-    Y = np.vstack([y_ticks["y_px"].values, np.ones(len(y_ticks))]).T
-    a, b = np.linalg.lstsq(Y, y_ticks["value"].values, rcond=None)[0]
-    df[colname] = a * df["y_px"] + b
+
+    state_ticks = ticks[ticks["kind"] == "state"].copy()
+    if not state_ticks.empty:
+        state_ticks["value"] = state_ticks["text"].apply(
+            lambda s: 0.0 if re.search(r"(?i)unlock|no\s*lock|out\s*of\s*lock|loss", s) else 1.0
+        )
+        if len(state_ticks) >= 2:
+            Y = np.vstack([state_ticks["y_px"].values, np.ones(len(state_ticks))]).T
+            a, b = np.linalg.lstsq(Y, state_ticks["value"].values, rcond=None)[0]
+            df[colname] = np.round(a * df["y_px"] + b).clip(0, 1)
+        else:
+            df[colname] = state_ticks["value"].iloc[0]
+        return df
+
+    if "lock" in colname.lower() and not df.empty:
+        threshold = float(df["y_px"].median())
+        df[colname] = (df["y_px"] <= threshold).astype(int)
+        return df
+
+    df[colname] = np.nan
     return df
 
 
@@ -570,9 +605,130 @@ def derive_orbit_filename(soup: BeautifulSoup):
     return prefix, orbit_no
 
 
+
+def count_unlock_events(values):
+    """Count unlock events as stable 1→0→1 patterns."""
+    stable = []
+    for raw in values:
+        if pd.isna(raw):
+            continue
+        v = int(round(float(raw)))
+        if not stable or stable[-1] != v:
+            stable.append(v)
+    if len(stable) < 3:
+        return 0
+    return sum(
+        1
+        for i in range(1, len(stable) - 1)
+        if stable[i - 1] == 1 and stable[i] == 0 and stable[i + 1] == 1
+    )
+
+
+def summarize_selected_stats(orbit_no: str, section_frames: dict, selectors):
+    """Create summary rows for selected statistics."""
+    rows = []
+    wanted = {s.lower() for s in (selectors or [])}
+    if "demodulator_lock_state" in wanted:
+        unlocks_total = 0
+        for ycol, df in section_frames.items():
+            if "demodulator_lock_state" in ycol.lower() and ycol in df:
+                unlocks_total += count_unlock_events(df[ycol])
+        rows.append({"Orbit Number": orbit_no or "N/A", "Unlocks": unlocks_total})
+    return rows
+
+
+def _find_section_by_keywords(section_frames: dict, keywords):
+    for ycol, df in section_frames.items():
+        low = ycol.lower()
+        if all(k in low for k in keywords):
+            return ycol, df
+    return None, None
+
+
+def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selectors):
+    """Generate polar color plots (metric over azimuth/elevation)."""
+    wanted = {s.lower() for s in (selectors or [])}
+    if not wanted:
+        return []
+
+    az_col, az_df = _find_section_by_keywords(section_frames, ["azimuth"])
+    el_col, el_df = _find_section_by_keywords(section_frames, ["elevation"])
+    if az_df is None or el_df is None:
+        return []
+
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        logger.warning("matplotlib not available: skipping polar plot generation")
+        return []
+
+    artifacts = []
+    metric_map = {
+        "input_level": ["input", "level"],
+        "eb_no": ["eb", "no"],
+        "snr": ["snr"],
+    }
+
+    az = az_df[["t_sec_rel", az_col]].copy()
+    el = el_df[["t_sec_rel", el_col]].copy()
+    az["t_sec_rel"] = pd.to_numeric(az["t_sec_rel"], errors="coerce")
+    el["t_sec_rel"] = pd.to_numeric(el["t_sec_rel"], errors="coerce")
+    az[az_col] = pd.to_numeric(az[az_col], errors="coerce")
+    el[el_col] = pd.to_numeric(el[el_col], errors="coerce")
+    az = az.dropna().sort_values("t_sec_rel")
+    el = el.dropna().sort_values("t_sec_rel")
+    if az.empty or el.empty:
+        return []
+
+    for selector, keys in metric_map.items():
+        if selector not in wanted:
+            continue
+        metric_col, metric_df = _find_section_by_keywords(section_frames, keys)
+        if metric_df is None or metric_col not in metric_df:
+            continue
+
+        metric = metric_df[["t_sec_rel", metric_col]].copy()
+        metric["t_sec_rel"] = pd.to_numeric(metric["t_sec_rel"], errors="coerce")
+        metric[metric_col] = pd.to_numeric(metric[metric_col], errors="coerce")
+        metric = metric.dropna().sort_values("t_sec_rel")
+        if metric.empty:
+            continue
+
+        t = metric["t_sec_rel"].to_numpy()
+        az_interp = np.interp(t, az["t_sec_rel"].to_numpy(), az[az_col].to_numpy())
+        el_interp = np.interp(t, el["t_sec_rel"].to_numpy(), el[el_col].to_numpy())
+
+        theta = np.deg2rad(np.mod(az_interp, 360.0))
+        radius = 90.0 - el_interp
+
+        fig, ax = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(7, 5))
+        sc = ax.scatter(theta, radius, c=metric[metric_col].to_numpy(), cmap="viridis", s=16)
+        ax.set_theta_zero_location("N")
+        ax.set_theta_direction(-1)
+        ax.set_title(f"{metric_col} vs azimuth/elevation")
+        ax.set_rlabel_position(135)
+        cbar = fig.colorbar(sc, ax=ax, pad=0.12)
+        cbar.set_label(metric_col)
+
+        png_name = f"{out_path.stem}_{metric_col}_polar.png"
+        png_path = out_path.with_name(png_name)
+        fig.savefig(png_path, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        artifacts.append({"plot": metric_col, "path": str(png_path)})
+
+    return artifacts
+
+
 # -------------------- Main --------------------
 
-def process_html(html_path: Path, output_dir: Path) -> Path:
+def process_html(
+    html_path: Path,
+    output_dir: Path,
+    stats_selectors=None,
+    stats_rows=None,
+    plot_selectors=None,
+    plot_rows=None,
+) -> Path:
     """Elabora un report HTML e salva i grafici in un file Excel.
 
     Parameters
@@ -657,6 +813,7 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
 
     # writer: salva sempre in .xlsx
     out_path = output_dir / (base + ".xlsx")
+    section_frames = {}
     with pd.ExcelWriter(out_path, engine="openpyxl") as wr:
         # Meta
         pd.DataFrame([
@@ -672,6 +829,7 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
             df, ticks = extract_curve_for_header(hdr)
             df = map_x_to_time(df, start_dt, stop_dt)
             df = map_y_from_ticks(df, ticks, colname=ycol)
+            section_frames[ycol] = df.copy()
 
             cols = [
                 "x_px",
@@ -703,6 +861,12 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
     wb = wr.book
     if "Sheet" in wb.sheetnames:
         wb.remove(wb["Sheet"])
+
+    if stats_rows is not None:
+        stats_rows.extend(summarize_selected_stats(orbit_no, section_frames, stats_selectors))
+
+    if plot_rows is not None:
+        plot_rows.extend(generate_polar_plot_artifacts(out_path, section_frames, plot_selectors))
 
     return out_path
 
