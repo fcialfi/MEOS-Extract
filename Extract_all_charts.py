@@ -885,6 +885,17 @@ def _align_metric_with_az_el(metric: pd.DataFrame, az: pd.DataFrame, el: pd.Data
     return merged
 
 
+def _spherical_to_cartesian(az_deg, el_deg):
+    """Convert azimuth/elevation angles to unit-sphere Cartesian coordinates."""
+    az = np.deg2rad(np.asarray(az_deg, dtype=float))
+    el = np.deg2rad(np.asarray(el_deg, dtype=float))
+    r_xy = np.cos(el)
+    x = r_xy * np.cos(az)
+    y = r_xy * np.sin(az)
+    z = np.sin(el)
+    return x, y, z
+
+
 def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selectors):
     """Generate polar color plots (metric over azimuth/elevation)."""
     wanted = {s.lower() for s in (selectors or [])}
@@ -947,23 +958,49 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
             )
             continue
 
-        theta = np.deg2rad(np.mod(aligned["azimuth"].to_numpy(), 360.0))
-        radius = 90.0 - aligned["elevation"].to_numpy()
+        az_vals = np.mod(aligned["azimuth"].to_numpy(), 360.0)
+        el_vals = aligned["elevation"].to_numpy()
+        metric_vals = aligned["metric"].to_numpy()
 
-        fig, ax = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(7, 5))
-        sc = ax.scatter(theta, radius, c=aligned["metric"].to_numpy(), cmap="viridis", s=16)
-        ax.set_theta_zero_location("N")
-        ax.set_theta_direction(-1)
-        ax.set_title(f"{metric_col} vs azimuth/elevation")
-        ax.set_rlabel_position(135)
-        cbar = fig.colorbar(sc, ax=ax, pad=0.12)
-        cbar.set_label(metric_col)
+        # 2D polar (legacy output)
+        theta = np.deg2rad(az_vals)
+        radius = 90.0 - el_vals
+        fig_p, ax_p = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(7, 5))
+        sc_p = ax_p.scatter(theta, radius, c=metric_vals, cmap="viridis", s=16)
+        ax_p.set_theta_zero_location("N")
+        ax_p.set_theta_direction(-1)
+        ax_p.set_title(f"{metric_col} vs azimuth/elevation")
+        ax_p.set_rlabel_position(135)
+        cbar_p = fig_p.colorbar(sc_p, ax=ax_p, pad=0.12)
+        cbar_p.set_label(metric_col)
+        polar_name = f"{out_path.stem}_{metric_col}_polar.png"
+        polar_path = out_path.with_name(polar_name)
+        fig_p.savefig(polar_path, dpi=150, bbox_inches="tight")
+        plt.close(fig_p)
+        artifacts.append({"plot": metric_col, "kind": "polar", "path": str(polar_path)})
 
-        png_name = f"{out_path.stem}_{metric_col}_polar.png"
-        png_path = out_path.with_name(png_name)
-        fig.savefig(png_path, dpi=150, bbox_inches="tight")
-        plt.close(fig)
-        artifacts.append({"plot": metric_col, "path": str(png_path)})
+        # 3D Cartesian view avoids 0°/360° discontinuity jumps.
+        x, y, z = _spherical_to_cartesian(az_vals, el_vals)
+        fig3d = plt.figure(figsize=(8, 6))
+        ax3d = fig3d.add_subplot(111, projection="3d")
+        sc3d = ax3d.scatter(x, y, z, c=metric_vals, cmap="viridis", s=18)
+        ax3d.plot(x, y, z, color="gray", alpha=0.35, linewidth=0.8)
+        ax3d.set_title(f"{metric_col} 3D sky-view (continuous at 0°/360°)")
+        ax3d.set_xlabel("X")
+        ax3d.set_ylabel("Y")
+        ax3d.set_zlabel("Z (elevation)")
+        lim = 1.05
+        ax3d.set_xlim(-lim, lim)
+        ax3d.set_ylim(-lim, lim)
+        ax3d.set_zlim(-0.05, lim)
+        cbar3d = fig3d.colorbar(sc3d, ax=ax3d, pad=0.08)
+        cbar3d.set_label(metric_col)
+
+        png3d_name = f"{out_path.stem}_{metric_col}_3d.png"
+        png3d_path = out_path.with_name(png3d_name)
+        fig3d.savefig(png3d_path, dpi=150, bbox_inches="tight")
+        plt.close(fig3d)
+        artifacts.append({"plot": metric_col, "kind": "3d", "path": str(png3d_path)})
 
     if wanted and not artifacts:
         logger.warning(
