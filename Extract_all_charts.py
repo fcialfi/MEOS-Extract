@@ -1009,30 +1009,29 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
             logger.warning("Polar/3D plot '%s' skipped: insufficient valid angle samples", metric_col)
             continue
 
-        # 2D polar with smooth base trajectory + metric overlays.
+        # 2D polar styled like sky-map reference view.
         theta = np.deg2rad(az_vals)
-        radius_norm = (90.0 - el_vals) / 90.0
+        radius_norm = 1.0 - (el_vals / 90.0)
         track_az, track_el = _build_base_track(az_tmp, el_tmp)
         track_theta = np.deg2rad(track_az) if len(track_az) else np.array([])
-        track_radius = (90.0 - track_el) / 90.0 if len(track_el) else np.array([])
+        track_radius = 1.0 - (track_el / 90.0) if len(track_el) else np.array([])
 
         fig_p, ax_p = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(8, 6))
         if len(track_theta):
-            ax_p.plot(track_theta, track_radius, color="black", linewidth=1.4, alpha=0.9, zorder=1, label="Track")
-        sc_p = ax_p.scatter(theta, radius_norm, c=metric_vals, cmap="turbo", s=26, zorder=3)
-        ax_p.scatter(theta[:1], radius_norm[:1], c="white", edgecolors="black", s=55, zorder=4, label="Start")
-        ax_p.scatter(theta[-1:], radius_norm[-1:], c="black", s=45, zorder=4, label="End")
+            ax_p.plot(track_theta, track_radius, color="black", linewidth=1.6, alpha=0.95, zorder=1)
+        sc_p = ax_p.scatter(theta, radius_norm, c=metric_vals, cmap="jet", s=34, zorder=3, edgecolors="none")
+        ax_p.scatter(theta[:1], radius_norm[:1], c="#00AA88", marker="^", s=72, zorder=4)
+        ax_p.scatter(theta[-1:], radius_norm[-1:], c="#66CCFF", marker="D", s=70, zorder=4)
         ax_p.set_theta_zero_location("N")
-        ax_p.set_theta_direction(-1)
-        ax_p.set_ylim(0.0, 1.0)
+        ax_p.set_theta_direction(1)
+        ax_p.set_ylim(0.0, 1.02)
         ax_p.set_rticks([0.0, 0.5, 1.0])
-        ax_p.set_yticklabels(["Elev 90°", "Elev 45°", "Elev 0°"])
-        ax_p.set_rlabel_position(135)
+        ax_p.set_yticklabels(["0", "0.5", "1"])
+        ax_p.set_rlabel_position(18)
         ax_p.grid(alpha=0.35)
         ax_p.set_title(f"{metric_col} on antenna track")
-        ax_p.legend(loc="upper left", bbox_to_anchor=(-0.18, 1.12), frameon=True)
-        cbar_p = fig_p.colorbar(sc_p, ax=ax_p, pad=0.12)
-        cbar_p.set_label(metric_col)
+        cbar_p = fig_p.colorbar(sc_p, ax=ax_p, pad=0.10)
+        cbar_p.set_label("SNR (dB)" if "snr" in metric_col.lower() or "noise" in metric_col.lower() else metric_col)
         polar_name = f"{out_path.stem}_{metric_col}_polar.png"
         polar_path = out_path.with_name(polar_name)
         fig_p.savefig(polar_path, dpi=150, bbox_inches="tight")
