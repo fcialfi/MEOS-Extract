@@ -968,9 +968,15 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
             )
             continue
 
-        az_vals = np.mod(aligned["azimuth"].to_numpy(), 360.0)
-        el_vals = aligned["elevation"].to_numpy()
-        metric_vals = aligned["metric"].to_numpy()
+        az_vals = np.mod(aligned["azimuth"].to_numpy(dtype=float), 360.0)
+        el_vals = aligned["elevation"].to_numpy(dtype=float)
+        metric_vals = aligned["metric"].to_numpy(dtype=float)
+        valid = np.isfinite(az_vals) & np.isfinite(el_vals) & np.isfinite(metric_vals)
+        valid &= (el_vals >= 0.0) & (el_vals <= 90.0)
+        az_vals, el_vals, metric_vals = az_vals[valid], el_vals[valid], metric_vals[valid]
+        if len(az_vals) < 3:
+            logger.warning("Polar/3D plot '%s' skipped: insufficient valid angle samples", metric_col)
+            continue
 
         # 2D polar with explicit trajectory and elevation-normalized radius.
         theta = np.deg2rad(az_vals)
@@ -1050,14 +1056,24 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
     if len(mapped) < 2:
         return None
 
-    # choose azimuth as the curve with larger dynamic/range profile
+    # choose azimuth/elevation with value-domain aware scoring.
     scored = []
     for idx, df, vals in mapped:
         v = vals.dropna()
-        scored.append((idx, df, float(v.max() - v.min()), float(v.max())))
-    scored.sort(key=lambda t: (t[2], t[3]), reverse=True)
-    az_idx, az_df, _, _ = scored[0]
-    el_idx, el_df, _, _ = sorted(scored[1:], key=lambda t: t[3])[0]
+        vmin, vmax = float(v.min()), float(v.max())
+        vrng = float(vmax - vmin)
+        frac_az = float(((v >= -5) & (v <= 365)).mean())
+        frac_el = float(((v >= -2) & (v <= 92)).mean())
+        az_score = frac_az + (1.0 if vmax > 120 else 0.0) + 0.002 * vrng
+        el_score = frac_el + (1.0 if vmax <= 95 else -0.5) - 0.001 * max(0.0, vrng - 90.0)
+        scored.append((idx, df, az_score, el_score, vmin, vmax, vrng))
+
+    az_item = max(scored, key=lambda t: t[2])
+    el_candidates = [t for t in scored if t[0] != az_item[0]]
+    el_item = max(el_candidates, key=lambda t: t[3])
+
+    az_idx, az_df = az_item[0], az_item[1]
+    el_idx, el_df = el_item[0], el_item[1]
 
     az_col = f"value_{az_idx}"
     el_col = f"value_{el_idx}"
@@ -1075,6 +1091,10 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
         return None
 
     merged = pd.merge_asof(az, el, on="t_sec_rel", direction="nearest")
+    # sanitize physical ranges for pointing angles
+    merged[f"{ycol}_azimuth"] = pd.to_numeric(merged[f"{ycol}_azimuth"], errors="coerce") % 360.0
+    merged[f"{ycol}_elevation"] = pd.to_numeric(merged[f"{ycol}_elevation"], errors="coerce").clip(0.0, 90.0)
+    merged = merged.dropna(subset=[f"{ycol}_azimuth", f"{ycol}_elevation"])
     return merged
 
 
