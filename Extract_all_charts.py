@@ -1039,26 +1039,46 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
         plt.close(fig_p)
         artifacts.append({"plot": metric_col, "kind": "polar", "path": str(polar_path)})
 
-        # 3D sky-view: smooth base track + metric overlay points.
+        # 3D spherical sky-view: antenna at center + hemisphere surface.
         x, y, z = _spherical_to_cartesian(az_vals, el_vals)
         tx, ty, tz = _spherical_to_cartesian(track_az, track_el) if len(track_az) else (np.array([]), np.array([]), np.array([]))
 
         fig3d = plt.figure(figsize=(9, 7))
         ax3d = fig3d.add_subplot(111, projection="3d")
+
+        # hemisphere wireframe (z >= 0): antenna sky dome
+        az_grid = np.linspace(0, 2 * np.pi, 72)
+        el_grid = np.linspace(0, np.pi / 2, 28)
+        AZ, EL = np.meshgrid(az_grid, el_grid)
+        Xs = np.cos(EL) * np.cos(AZ)
+        Ys = np.cos(EL) * np.sin(AZ)
+        Zs = np.sin(EL)
+        ax3d.plot_wireframe(Xs, Ys, Zs, rstride=3, cstride=6, color="lightgray", linewidth=0.5, alpha=0.45)
+
+        # reference horizon circle
+        hz = np.linspace(0, 2 * np.pi, 240)
+        ax3d.plot(np.cos(hz), np.sin(hz), np.zeros_like(hz), color="gray", linewidth=1.0, alpha=0.8)
+
+        # track and colored metric samples on sphere
         if len(tx):
-            ax3d.plot(tx, ty, tz, color="black", alpha=0.65, linewidth=1.2)
-        sc3d = ax3d.scatter(x, y, z, c=metric_vals, cmap="turbo", s=22, depthshade=False)
+            ax3d.plot(tx, ty, tz, color="black", alpha=0.75, linewidth=1.4)
+        sc3d = ax3d.scatter(x, y, z, c=metric_vals, cmap="turbo", s=24, depthshade=False)
+
+        # antenna center marker
+        ax3d.scatter([0.0], [0.0], [0.0], c="black", s=42)
+        ax3d.text(0.02, 0.02, 0.02, "Antenna", fontsize=8)
+
         ax3d.scatter([x[0]], [y[0]], [z[0]], c="white", edgecolors="black", s=60)
         ax3d.scatter([x[-1]], [y[-1]], [z[-1]], c="black", s=50)
-        ax3d.set_title(f"{metric_col} 3D sky track")
+        ax3d.set_title(f"{metric_col} 3D spherical sky-view")
         ax3d.set_xlabel("X")
         ax3d.set_ylabel("Y")
-        ax3d.set_zlabel("sin(Elevation)")
+        ax3d.set_zlabel("Z")
         lim = 1.05
         ax3d.set_xlim(-lim, lim)
         ax3d.set_ylim(-lim, lim)
-        ax3d.set_zlim(-0.05, lim)
-        ax3d.view_init(elev=28, azim=45)
+        ax3d.set_zlim(0.0, lim)
+        ax3d.view_init(elev=24, azim=48)
         cbar3d = fig3d.colorbar(sc3d, ax=ax3d, pad=0.08)
         cbar3d.set_label(metric_col)
 

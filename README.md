@@ -34,7 +34,7 @@ Un'interfaccia Tkinter è disponibile per elaborare più cartelle.
    - `Polar plot Input Level`, `Polar plot Eb/No`, `Polar plot SNR`: genera grafici polari a colori rispetto ad azimuth/elevation.
 5. Premere **Run** per generare gli Excel; ogni file salvato verrà segnalato.
 6. Se è abilitata la statistica lock, viene creato `lock_state_stats.xlsx` (solo colonne `Orbit Number` e `Unlocks`).
-7. Se sono abilitati i plot, vengono creati PNG polari **e 3D** (continui in prossimità 0°/360°) e un indice `polar_plots_index.xlsx`.
+7. Se sono abilitati i plot, vengono creati PNG polari **e 3D sferici (cupola del cielo con antenna al centro)** e un indice `polar_plots_index.xlsx`.
 8. La GUI richiede `tkinter`. Se non è già presente, installarlo come indicato nella sezione *Dipendenze*.
 
 I log dell'applicazione sono salvati nel file `gui_app.log` nella stessa directory dello script. Se il file non è scrivibile, i messaggi vengono mostrati solo in console.
