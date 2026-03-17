@@ -866,23 +866,33 @@ def _align_metric_with_az_el(metric: pd.DataFrame, az: pd.DataFrame, el: pd.Data
     if metric.empty or az.empty or el.empty:
         return pd.DataFrame()
 
-    # nearest-time approximation with tolerance derived from sampling step
-    def typical_step(df):
-        diffs = df["t_sec_rel"].diff().dropna()
-        diffs = diffs[diffs > 0]
-        return float(diffs.median()) if not diffs.empty else None
+    metric = metric.sort_values("t_sec_rel").drop_duplicates("t_sec_rel")
+    az = az.sort_values("t_sec_rel").drop_duplicates("t_sec_rel")
+    el = el.sort_values("t_sec_rel").drop_duplicates("t_sec_rel")
+    if len(metric) < 2 or len(az) < 2 or len(el) < 2:
+        return pd.DataFrame()
 
-    steps = [v for v in (typical_step(metric), typical_step(az), typical_step(el)) if v is not None]
-    tol = max(steps) * 2.5 if steps else 1.0
+    t = metric["t_sec_rel"].to_numpy(dtype=float)
+    az_t = az["t_sec_rel"].to_numpy(dtype=float)
+    el_t = el["t_sec_rel"].to_numpy(dtype=float)
 
-    base = metric[["t_sec_rel", "metric"]].sort_values("t_sec_rel")
-    az2 = az[["t_sec_rel", "azimuth"]].sort_values("t_sec_rel")
-    el2 = el[["t_sec_rel", "elevation"]].sort_values("t_sec_rel")
+    # interpolate azimuth with angular continuity: unwrap in radians, then wrap back.
+    az_rad = np.deg2rad(az["azimuth"].to_numpy(dtype=float))
+    az_unwrapped = np.unwrap(az_rad)
+    az_interp_unwrapped = np.interp(t, az_t, az_unwrapped)
+    az_interp = np.rad2deg(az_interp_unwrapped) % 360.0
 
-    merged = pd.merge_asof(base, az2, on="t_sec_rel", direction="nearest", tolerance=tol)
-    merged = pd.merge_asof(merged, el2, on="t_sec_rel", direction="nearest", tolerance=tol)
-    merged = merged.dropna(subset=["metric", "azimuth", "elevation"])
-    return merged
+    # linear interpolation for elevation.
+    el_interp = np.interp(t, el_t, el["elevation"].to_numpy(dtype=float))
+
+    aligned = pd.DataFrame({
+        "t_sec_rel": t,
+        "metric": metric["metric"].to_numpy(dtype=float),
+        "azimuth": az_interp,
+        "elevation": el_interp,
+    })
+    aligned = aligned.dropna(subset=["metric", "azimuth", "elevation"])
+    return aligned
 
 
 def _spherical_to_cartesian(az_deg, el_deg):
