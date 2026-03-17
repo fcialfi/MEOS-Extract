@@ -232,7 +232,7 @@ def main():
                 pd.DataFrame(plot_rows).to_excel(plot_index, index=False)
                 logging.info("Saved polar plot index: %s", plot_index)
             else:
-                logging.warning("Polar plots requested, but no matching Input Level/EbNo/SNR with azimuth/elevation found")
+                logging.warning("Polar plots requested, but none were generated. Check detailed warnings in log for matching/metric diagnostics.")
 
         logging.info("Completed: created %d files", len(saved))
 

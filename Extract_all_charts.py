@@ -800,17 +800,89 @@ def _is_elevation_label(label: str) -> bool:
 
 def _is_input_level_label(label: str) -> bool:
     n = _normalized_label(label)
-    return "inputlevel" in n or ("input" in n and "level" in n)
+    return "inputlevel" in n or "iflevel" in n or ("input" in n and "level" in n)
 
 
 def _is_ebno_label(label: str) -> bool:
     n = _normalized_label(label)
-    return "ebn0" in n or "ebno" in n or ("eb" in n and ("n0" in n or "no" in n))
+    return "ebn0" in n or "ebno" in n or "esn0" in n or "esno" in n or ("eb" in n and ("n0" in n or "no" in n))
 
 
 def _is_snr_label(label: str) -> bool:
     n = _normalized_label(label)
-    return "snr" in n
+    return "snr" in n or "signaltonoiseratio" in n or "cn0" in n or "cno" in n
+
+
+def _find_metric_section(section_frames: dict, selector: str):
+    metric_map = {
+        "input_level": _is_input_level_label,
+        "eb_no": _is_ebno_label,
+        "snr": _is_snr_label,
+    }
+    matcher = metric_map.get(selector)
+    if matcher is None:
+        return None, None
+
+    col, df = _find_section_by_predicate(section_frames, matcher)
+    if df is not None and col is not None:
+        return col, df
+
+    token_map = {
+        "input_level": ["input", "level", "iflevel"],
+        "eb_no": ["eb", "n0", "no", "esn0", "esno"],
+        "snr": ["snr", "cn0", "cno"],
+    }
+    tokens = token_map.get(selector, [])
+    scored = []
+    for ycol, cdf in section_frames.items():
+        n = _normalized_label(ycol)
+        if "antenna" in n or "azimuth" in n or "elevation" in n or "lock" in n:
+            continue
+        score = sum(1 for t in tokens if t in n)
+        if score <= 0 or ycol not in cdf:
+            continue
+        vals = pd.to_numeric(cdf[ycol], errors="coerce").dropna()
+        if vals.empty:
+            continue
+        scored.append((score, len(vals), ycol, cdf))
+
+    if not scored:
+        return None, None
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    return scored[0][2], scored[0][3]
+
+
+def _align_metric_with_az_el(metric: pd.DataFrame, az: pd.DataFrame, el: pd.DataFrame):
+    """Align metric samples with azimuth/elevation on common time interval."""
+    # common overlap window
+    t0 = max(float(metric["t_sec_rel"].min()), float(az["t_sec_rel"].min()), float(el["t_sec_rel"].min()))
+    t1 = min(float(metric["t_sec_rel"].max()), float(az["t_sec_rel"].max()), float(el["t_sec_rel"].max()))
+    if t1 <= t0:
+        return pd.DataFrame()
+
+    metric = metric[(metric["t_sec_rel"] >= t0) & (metric["t_sec_rel"] <= t1)].copy()
+    az = az[(az["t_sec_rel"] >= t0) & (az["t_sec_rel"] <= t1)].copy()
+    el = el[(el["t_sec_rel"] >= t0) & (el["t_sec_rel"] <= t1)].copy()
+    if metric.empty or az.empty or el.empty:
+        return pd.DataFrame()
+
+    # nearest-time approximation with tolerance derived from sampling step
+    def typical_step(df):
+        diffs = df["t_sec_rel"].diff().dropna()
+        diffs = diffs[diffs > 0]
+        return float(diffs.median()) if not diffs.empty else None
+
+    steps = [v for v in (typical_step(metric), typical_step(az), typical_step(el)) if v is not None]
+    tol = max(steps) * 2.5 if steps else 1.0
+
+    base = metric[["t_sec_rel", "metric"]].sort_values("t_sec_rel")
+    az2 = az[["t_sec_rel", "azimuth"]].sort_values("t_sec_rel")
+    el2 = el[["t_sec_rel", "elevation"]].sort_values("t_sec_rel")
+
+    merged = pd.merge_asof(base, az2, on="t_sec_rel", direction="nearest", tolerance=tol)
+    merged = pd.merge_asof(merged, el2, on="t_sec_rel", direction="nearest", tolerance=tol)
+    merged = merged.dropna(subset=["metric", "azimuth", "elevation"])
+    return merged
 
 
 def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selectors):
@@ -837,11 +909,6 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
         return []
 
     artifacts = []
-    metric_map = {
-        "input_level": _is_input_level_label,
-        "eb_no": _is_ebno_label,
-        "snr": _is_snr_label,
-    }
 
     az = az_df[["t_sec_rel", az_col]].copy()
     el = el_df[["t_sec_rel", el_col]].copy()
@@ -855,10 +922,10 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
         logger.warning("Polar plots skipped: azimuth/elevation numeric samples are empty")
         return []
 
-    for selector, matcher in metric_map.items():
+    for selector in ("input_level", "eb_no", "snr"):
         if selector not in wanted:
             continue
-        metric_col, metric_df = _find_section_by_predicate(section_frames, matcher)
+        metric_col, metric_df = _find_metric_section(section_frames, selector)
         if metric_df is None or metric_col not in metric_df:
             continue
 
@@ -868,16 +935,23 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
         metric = metric.dropna().sort_values("t_sec_rel")
         if metric.empty:
             continue
+        metric = metric.rename(columns={metric_col: "metric"})
 
-        t = metric["t_sec_rel"].to_numpy()
-        az_interp = np.interp(t, az["t_sec_rel"].to_numpy(), az[az_col].to_numpy())
-        el_interp = np.interp(t, el["t_sec_rel"].to_numpy(), el[el_col].to_numpy())
+        az_tmp = az[["t_sec_rel", az_col]].rename(columns={az_col: "azimuth"})
+        el_tmp = el[["t_sec_rel", el_col]].rename(columns={el_col: "elevation"})
+        aligned = _align_metric_with_az_el(metric, az_tmp, el_tmp)
+        if aligned.empty:
+            logger.warning(
+                "Polar plot '%s' skipped: no overlapping/aligned time samples with azimuth/elevation",
+                metric_col,
+            )
+            continue
 
-        theta = np.deg2rad(np.mod(az_interp, 360.0))
-        radius = 90.0 - el_interp
+        theta = np.deg2rad(np.mod(aligned["azimuth"].to_numpy(), 360.0))
+        radius = 90.0 - aligned["elevation"].to_numpy()
 
         fig, ax = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(7, 5))
-        sc = ax.scatter(theta, radius, c=metric[metric_col].to_numpy(), cmap="viridis", s=16)
+        sc = ax.scatter(theta, radius, c=aligned["metric"].to_numpy(), cmap="viridis", s=16)
         ax.set_theta_zero_location("N")
         ax.set_theta_direction(-1)
         ax.set_title(f"{metric_col} vs azimuth/elevation")
