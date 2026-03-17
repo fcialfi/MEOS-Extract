@@ -1103,6 +1103,28 @@ def _numeric_tick_groups(ticks: pd.DataFrame):
     return groups
 
 
+def _sanitize_curve_timebase(raw_df: pd.DataFrame):
+    """Ensure curve is single-valued over x (time axis) by collapsing duplicate x samples."""
+    if raw_df is None or raw_df.empty:
+        return pd.DataFrame(columns=["x_px", "y_px"])
+    df = raw_df[["x_px", "y_px"]].copy()
+    df["x_px"] = pd.to_numeric(df["x_px"], errors="coerce")
+    df["y_px"] = pd.to_numeric(df["y_px"], errors="coerce")
+    df = df.dropna(subset=["x_px", "y_px"])
+    if df.empty:
+        return df
+
+    # Collapse near-duplicate x coordinates that create vertical jumps.
+    df["x_key"] = df["x_px"].round(2)
+    df = (
+        df.groupby("x_key", as_index=False)
+        .agg({"x_px": "median", "y_px": "median"})
+        .sort_values("x_px")
+        .reset_index(drop=True)
+    )
+    return df[["x_px", "y_px"]]
+
+
 def _map_curve_with_ticks_group(raw_df: pd.DataFrame, tick_group: pd.DataFrame, out_col: str):
     """Map y_px to values using a specific numeric tick group."""
     if raw_df.empty or tick_group is None or tick_group.empty:
@@ -1116,11 +1138,59 @@ def _map_curve_with_ticks_group(raw_df: pd.DataFrame, tick_group: pd.DataFrame, 
     return tmp
 
 
+def _regularize_antenna_series(df: pd.DataFrame, az_col: str, el_col: str):
+    """Regularize antenna az/el time series to reduce extraction jitter."""
+    out = df.copy()
+    out = out.sort_values("t_sec_rel")
+
+    # Collapse duplicated/near-duplicated timestamps by median value.
+    out["t_key"] = out["t_sec_rel"].round(3)
+    agg = out.groupby("t_key", as_index=False).agg({
+        "t_sec_rel": "median",
+        "time_HH:MM:SS": "first",
+        "time_iso_utc": "first",
+        "x_px_az": "median",
+        "y_px_az": "median",
+        az_col: "median",
+        "x_px_el": "median",
+        "y_px_el": "median",
+        el_col: "median",
+    })
+
+    az = pd.to_numeric(agg[az_col], errors="coerce").to_numpy(dtype=float)
+    el = pd.to_numeric(agg[el_col], errors="coerce").to_numpy(dtype=float)
+    if len(agg) < 8:
+        return agg.drop(columns=["t_key"], errors="ignore")
+
+    # Smooth elevation with piecewise monotonic profile (up then down).
+    peak = int(np.nanargmax(el)) if np.isfinite(el).any() else len(el) // 2
+    el_up = np.maximum.accumulate(el[: peak + 1])
+    el_dn = np.minimum.accumulate(el[peak:])
+    el_s = np.concatenate([el_up, el_dn[1:]]) if len(el_dn) > 1 else el_up
+    el_s = np.clip(el_s, 0.0, 90.0)
+
+    # Smooth azimuth as mostly monotonic in unwrapped space.
+    az_u = np.rad2deg(np.unwrap(np.deg2rad(az)))
+    direction = np.nanmedian(np.diff(az_u))
+    if np.isnan(direction):
+        direction = 0.0
+    if direction >= 0:
+        az_s = np.maximum.accumulate(az_u)
+    else:
+        az_s = np.minimum.accumulate(az_u)
+    az_s = np.mod(az_s, 360.0)
+
+    agg[az_col] = az_s
+    agg[el_col] = el_s
+    return agg.drop(columns=["t_key"], errors="ignore")
+
+
 def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
     """Build a single antenna dataframe with azimuth and elevation columns."""
     mapped = []
     for idx, (_series_name, raw_df, ticks) in enumerate(curves, start=1):
-        base = map_x_to_time(raw_df.copy(), start_dt, stop_dt)
+        base_curve = _sanitize_curve_timebase(raw_df.copy())
+        base = map_x_to_time(base_curve, start_dt, stop_dt)
         if base.empty:
             continue
 
@@ -1151,14 +1221,39 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
     # choose azimuth/elevation with value-domain aware scoring.
     scored = []
     for idx, df, vals, val_col in mapped:
-        v = vals.dropna()
-        vmin, vmax = float(v.min()), float(v.max())
+        tmp = df[["t_sec_rel", val_col]].copy()
+        tmp = tmp.dropna().sort_values("t_sec_rel")
+        if len(tmp) < 8:
+            continue
+        v = pd.to_numeric(tmp[val_col], errors="coerce").dropna().to_numpy(dtype=float)
+        if len(v) < 8:
+            continue
+        vmin, vmax = float(np.min(v)), float(np.max(v))
         vrng = float(vmax - vmin)
-        frac_az = float(((v >= -5) & (v <= 365)).mean())
-        frac_el = float(((v >= -2) & (v <= 92)).mean())
-        az_score = frac_az + (1.0 if vmax > 120 else 0.0) + 0.002 * vrng
-        el_score = frac_el + (1.0 if vmax <= 95 else -0.5) - 0.001 * max(0.0, vrng - 90.0)
-        scored.append((idx, df, val_col, az_score, el_score, vmin, vmax, vrng))
+
+        d1 = np.diff(v)
+        nz = d1[np.abs(d1) > 1e-9]
+        if len(nz) == 0:
+            continue
+        frac_pos = float(np.mean(nz > 0))
+        frac_neg = float(np.mean(nz < 0))
+        mono_score = max(frac_pos, frac_neg)
+
+        # bell-shape score: signs should go + ... - with at most one transition.
+        signs = np.sign(nz)
+        trans = np.sum(signs[1:] * signs[:-1] < 0)
+        bell_score = 1.0 / (1.0 + trans)
+
+        frac_az = float(np.mean((v >= -5) & (v <= 365)))
+        frac_el = float(np.mean((v >= -2) & (v <= 92)))
+
+        az_score = 2.0 * frac_az + 1.8 * mono_score + (1.2 if vmax > 120 else 0.0) + 0.001 * vrng
+        el_score = 2.0 * frac_el + 1.7 * bell_score + (1.0 if 5 <= vmax <= 95 else -0.8) - 0.001 * max(0.0, vrng - 90.0)
+
+        scored.append((idx, df, val_col, az_score, el_score, vmin, vmax, vrng, mono_score, bell_score))
+
+    if len(scored) < 2:
+        return None
 
     az_item = max(scored, key=lambda t: t[3])
     el_candidates = [t for t in scored if t[0] != az_item[0]]
@@ -1189,6 +1284,7 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
     merged[f"{ycol}_azimuth"] = pd.to_numeric(merged[f"{ycol}_azimuth"], errors="coerce") % 360.0
     merged[f"{ycol}_elevation"] = pd.to_numeric(merged[f"{ycol}_elevation"], errors="coerce").clip(0.0, 90.0)
     merged = merged.dropna(subset=[f"{ycol}_azimuth", f"{ycol}_elevation"])
+    merged = _regularize_antenna_series(merged, f"{ycol}_azimuth", f"{ycol}_elevation")
     return merged
 
 
