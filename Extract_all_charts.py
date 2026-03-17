@@ -637,12 +637,40 @@ def summarize_selected_stats(orbit_no: str, section_frames: dict, selectors):
     return rows
 
 
-def _find_section_by_keywords(section_frames: dict, keywords):
+def _normalized_label(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (s or "").lower())
+
+
+def _find_section_by_predicate(section_frames: dict, predicate):
     for ycol, df in section_frames.items():
-        low = ycol.lower()
-        if all(k in low for k in keywords):
+        if predicate(ycol):
             return ycol, df
     return None, None
+
+
+def _is_azimuth_label(label: str) -> bool:
+    n = _normalized_label(label)
+    return "azimuth" in n or n.startswith("az") or "antennaaz" in n
+
+
+def _is_elevation_label(label: str) -> bool:
+    n = _normalized_label(label)
+    return "elevation" in n or n.startswith("el") or "antennael" in n
+
+
+def _is_input_level_label(label: str) -> bool:
+    n = _normalized_label(label)
+    return "inputlevel" in n or ("input" in n and "level" in n)
+
+
+def _is_ebno_label(label: str) -> bool:
+    n = _normalized_label(label)
+    return "ebn0" in n or "ebno" in n or ("eb" in n and ("n0" in n or "no" in n))
+
+
+def _is_snr_label(label: str) -> bool:
+    n = _normalized_label(label)
+    return "snr" in n
 
 
 def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selectors):
@@ -651,9 +679,13 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
     if not wanted:
         return []
 
-    az_col, az_df = _find_section_by_keywords(section_frames, ["azimuth"])
-    el_col, el_df = _find_section_by_keywords(section_frames, ["elevation"])
+    az_col, az_df = _find_section_by_predicate(section_frames, _is_azimuth_label)
+    el_col, el_df = _find_section_by_predicate(section_frames, _is_elevation_label)
     if az_df is None or el_df is None:
+        logger.warning(
+            "Polar plots skipped: azimuth/elevation charts not found. Available sections: %s",
+            ", ".join(section_frames.keys()),
+        )
         return []
 
     try:
@@ -664,9 +696,9 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
 
     artifacts = []
     metric_map = {
-        "input_level": ["input", "level"],
-        "eb_no": ["eb", "no"],
-        "snr": ["snr"],
+        "input_level": _is_input_level_label,
+        "eb_no": _is_ebno_label,
+        "snr": _is_snr_label,
     }
 
     az = az_df[["t_sec_rel", az_col]].copy()
@@ -678,12 +710,13 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
     az = az.dropna().sort_values("t_sec_rel")
     el = el.dropna().sort_values("t_sec_rel")
     if az.empty or el.empty:
+        logger.warning("Polar plots skipped: azimuth/elevation numeric samples are empty")
         return []
 
-    for selector, keys in metric_map.items():
+    for selector, matcher in metric_map.items():
         if selector not in wanted:
             continue
-        metric_col, metric_df = _find_section_by_keywords(section_frames, keys)
+        metric_col, metric_df = _find_section_by_predicate(section_frames, matcher)
         if metric_df is None or metric_col not in metric_df:
             continue
 
@@ -715,6 +748,13 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
         fig.savefig(png_path, dpi=150, bbox_inches="tight")
         plt.close(fig)
         artifacts.append({"plot": metric_col, "path": str(png_path)})
+
+    if wanted and not artifacts:
+        logger.warning(
+            "Polar plots requested but no matching metric sections found. Requested=%s; available=%s",
+            sorted(wanted),
+            ", ".join(section_frames.keys()),
+        )
 
     return artifacts
 
