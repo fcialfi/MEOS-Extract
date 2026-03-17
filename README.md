@@ -12,6 +12,7 @@ Per una spiegazione dettagliata del codice, consultare [CODE_MANUAL.md](CODE_MAN
 - numpy
 - openpyxl
 - tkinter (se non incluso, installare ad es. `sudo apt install python3-tk`)
+- matplotlib (opzionale, per i plot polari a colori)
 
 Installazione rapida:
 ```bash
@@ -28,11 +29,13 @@ Un'interfaccia Tkinter è disponibile per elaborare più cartelle.
    ```
 2. Utilizzare il pulsante **Aggiungi cartella** per selezionare le cartelle contenenti `report.html`.
 3. Selezionare la cartella di destinazione con **Seleziona output**.
-4. (Opzionale) Abilitare le statistiche nel riquadro **Statistics**.
+4. (Opzionale) Abilitare le opzioni nel riquadro **Statistics**:
    - `demodulator_lock_state`: conta gli eventi di unlock interni al pass (pattern stabile `1→0→1`).
+   - `Polar plot Input Level`, `Polar plot Eb/No`, `Polar plot SNR`: genera grafici polari a colori rispetto ad azimuth/elevation.
 5. Premere **Run** per generare gli Excel; ogni file salvato verrà segnalato.
-6. Se sono abilitate statistiche, viene creato anche `lock_state_stats.xlsx` nella cartella di output con il conteggio per file/report.
-7. La GUI richiede `tkinter`. Se non è già presente, installarlo come indicato nella sezione *Dipendenze*.
+6. Se è abilitata la statistica lock, viene creato `lock_state_stats.xlsx` (solo colonne `Orbit Number` e `Unlocks`).
+7. Se sono abilitati i plot, vengono creati PNG polari e un indice `polar_plots_index.xlsx`.
+8. La GUI richiede `tkinter`. Se non è già presente, installarlo come indicato nella sezione *Dipendenze*.
 
 I log dell'applicazione sono salvati nel file `gui_app.log` nella stessa directory dello script. Se il file non è scrivibile, i messaggi vengono mostrati solo in console.
 

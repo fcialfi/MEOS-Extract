@@ -617,30 +617,118 @@ def count_unlock_events(values):
             stable.append(v)
     if len(stable) < 3:
         return 0
-    return sum(1 for i in range(1, len(stable) - 1) if stable[i - 1] == 1 and stable[i] == 0 and stable[i + 1] == 1)
+    return sum(
+        1
+        for i in range(1, len(stable) - 1)
+        if stable[i - 1] == 1 and stable[i] == 0 and stable[i + 1] == 1
+    )
 
 
-def summarize_selected_stats(html_path: Path, out_path: Path, section_frames: dict, selectors):
-    """Create summary rows for selected lock-state statistics."""
+def summarize_selected_stats(orbit_no: str, section_frames: dict, selectors):
+    """Create summary rows for selected statistics."""
     rows = []
     wanted = {s.lower() for s in (selectors or [])}
-    if not wanted:
-        return rows
+    if "demodulator_lock_state" in wanted:
+        unlocks_total = 0
+        for ycol, df in section_frames.items():
+            if "demodulator_lock_state" in ycol.lower() and ycol in df:
+                unlocks_total += count_unlock_events(df[ycol])
+        rows.append({"Orbit Number": orbit_no or "N/A", "Unlocks": unlocks_total})
+    return rows
 
+
+def _find_section_by_keywords(section_frames: dict, keywords):
     for ycol, df in section_frames.items():
         low = ycol.lower()
-        if "demodulator_lock_state" in wanted and "demodulator_lock_state" in low:
-            rows.append({
-                "input_html": str(html_path),
-                "output_excel": str(out_path),
-                "label": ycol,
-                "unlock_events": count_unlock_events(df[ycol]) if ycol in df else 0,
-            })
-    return rows
+        if all(k in low for k in keywords):
+            return ycol, df
+    return None, None
+
+
+def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selectors):
+    """Generate polar color plots (metric over azimuth/elevation)."""
+    wanted = {s.lower() for s in (selectors or [])}
+    if not wanted:
+        return []
+
+    az_col, az_df = _find_section_by_keywords(section_frames, ["azimuth"])
+    el_col, el_df = _find_section_by_keywords(section_frames, ["elevation"])
+    if az_df is None or el_df is None:
+        return []
+
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        logger.warning("matplotlib not available: skipping polar plot generation")
+        return []
+
+    artifacts = []
+    metric_map = {
+        "input_level": ["input", "level"],
+        "eb_no": ["eb", "no"],
+        "snr": ["snr"],
+    }
+
+    az = az_df[["t_sec_rel", az_col]].copy()
+    el = el_df[["t_sec_rel", el_col]].copy()
+    az["t_sec_rel"] = pd.to_numeric(az["t_sec_rel"], errors="coerce")
+    el["t_sec_rel"] = pd.to_numeric(el["t_sec_rel"], errors="coerce")
+    az[az_col] = pd.to_numeric(az[az_col], errors="coerce")
+    el[el_col] = pd.to_numeric(el[el_col], errors="coerce")
+    az = az.dropna().sort_values("t_sec_rel")
+    el = el.dropna().sort_values("t_sec_rel")
+    if az.empty or el.empty:
+        return []
+
+    for selector, keys in metric_map.items():
+        if selector not in wanted:
+            continue
+        metric_col, metric_df = _find_section_by_keywords(section_frames, keys)
+        if metric_df is None or metric_col not in metric_df:
+            continue
+
+        metric = metric_df[["t_sec_rel", metric_col]].copy()
+        metric["t_sec_rel"] = pd.to_numeric(metric["t_sec_rel"], errors="coerce")
+        metric[metric_col] = pd.to_numeric(metric[metric_col], errors="coerce")
+        metric = metric.dropna().sort_values("t_sec_rel")
+        if metric.empty:
+            continue
+
+        t = metric["t_sec_rel"].to_numpy()
+        az_interp = np.interp(t, az["t_sec_rel"].to_numpy(), az[az_col].to_numpy())
+        el_interp = np.interp(t, el["t_sec_rel"].to_numpy(), el[el_col].to_numpy())
+
+        theta = np.deg2rad(np.mod(az_interp, 360.0))
+        radius = 90.0 - el_interp
+
+        fig, ax = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(7, 5))
+        sc = ax.scatter(theta, radius, c=metric[metric_col].to_numpy(), cmap="viridis", s=16)
+        ax.set_theta_zero_location("N")
+        ax.set_theta_direction(-1)
+        ax.set_title(f"{metric_col} vs azimuth/elevation")
+        ax.set_rlabel_position(135)
+        cbar = fig.colorbar(sc, ax=ax, pad=0.12)
+        cbar.set_label(metric_col)
+
+        png_name = f"{out_path.stem}_{metric_col}_polar.png"
+        png_path = out_path.with_name(png_name)
+        fig.savefig(png_path, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        artifacts.append({"plot": metric_col, "path": str(png_path)})
+
+    return artifacts
+
 
 # -------------------- Main --------------------
 
-def process_html(html_path: Path, output_dir: Path, stats_selectors=None, stats_rows=None) -> Path:
+def process_html(
+    html_path: Path,
+    output_dir: Path,
+    stats_selectors=None,
+    stats_rows=None,
+    plot_selectors=None,
+    plot_rows=None,
+) -> Path:
     """Elabora un report HTML e salva i grafici in un file Excel.
 
     Parameters
@@ -775,7 +863,10 @@ def process_html(html_path: Path, output_dir: Path, stats_selectors=None, stats_
         wb.remove(wb["Sheet"])
 
     if stats_rows is not None:
-        stats_rows.extend(summarize_selected_stats(html, out_path, section_frames, stats_selectors))
+        stats_rows.extend(summarize_selected_stats(orbit_no, section_frames, stats_selectors))
+
+    if plot_rows is not None:
+        plot_rows.extend(generate_polar_plot_artifacts(out_path, section_frames, plot_selectors))
 
     return out_path
 

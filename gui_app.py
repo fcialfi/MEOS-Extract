@@ -109,6 +109,19 @@ def main():
         variable=stat_demod_unlock,
     ).pack(side="left", padx=5, pady=2)
 
+    plot_input_level = BooleanVar(value=False)
+    plot_eb_no = BooleanVar(value=False)
+    plot_snr = BooleanVar(value=False)
+    ttk.Checkbutton(stats_frame, text="Polar plot Input Level", variable=plot_input_level).pack(
+        side="left", padx=5, pady=2
+    )
+    ttk.Checkbutton(stats_frame, text="Polar plot Eb/No", variable=plot_eb_no).pack(
+        side="left", padx=5, pady=2
+    )
+    ttk.Checkbutton(stats_frame, text="Polar plot SNR", variable=plot_snr).pack(
+        side="left", padx=5, pady=2
+    )
+
     # Button bar uses ``pack`` inside its own frame; mixing layout managers
     # within one container is problematic, but separate frames may use
     # different managers safely.
@@ -172,8 +185,17 @@ def main():
         if stat_demod_unlock.get():
             selected_stats.append("demodulator_lock_state")
 
+        selected_plots = []
+        if plot_input_level.get():
+            selected_plots.append("input_level")
+        if plot_eb_no.get():
+            selected_plots.append("eb_no")
+        if plot_snr.get():
+            selected_plots.append("snr")
+
         saved = []
         stats_rows = []
+        plot_rows = []
         for i in range(listbox.size()):
             folder = Path(listbox.get(i))
             html_files = sorted(folder.glob("*.html"))
@@ -187,6 +209,8 @@ def main():
                         output_dir["path"],
                         stats_selectors=selected_stats,
                         stats_rows=stats_rows,
+                        plot_selectors=selected_plots,
+                        plot_rows=plot_rows,
                     )
                     logging.info("Saved: %s", out)
                     saved.append(out)
@@ -197,12 +221,18 @@ def main():
         if selected_stats:
             stats_path = output_dir["path"] / "lock_state_stats.xlsx"
             if stats_rows:
-                pd.DataFrame(stats_rows).to_excel(stats_path, index=False)
+                pd.DataFrame(stats_rows, columns=["Orbit Number", "Unlocks"]).to_excel(stats_path, index=False)
             else:
-                pd.DataFrame([
-                    {"note": "No matching selected labels found in processed files."}
-                ]).to_excel(stats_path, index=False)
+                pd.DataFrame([{"Orbit Number": "N/A", "Unlocks": 0}]).to_excel(stats_path, index=False)
             logging.info("Saved statistics: %s", stats_path)
+
+        if selected_plots:
+            plot_index = output_dir["path"] / "polar_plots_index.xlsx"
+            if plot_rows:
+                pd.DataFrame(plot_rows).to_excel(plot_index, index=False)
+                logging.info("Saved polar plot index: %s", plot_index)
+            else:
+                logging.warning("Polar plots requested, but no matching Input Level/EbNo/SNR with azimuth/elevation found")
 
         logging.info("Completed: created %d files", len(saved))
 
