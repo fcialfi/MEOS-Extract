@@ -901,6 +901,51 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
     return artifacts
 
 
+def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
+    """Build a single antenna dataframe with azimuth and elevation columns."""
+    mapped = []
+    for idx, (_series_name, raw_df, ticks) in enumerate(curves, start=1):
+        tmp_col = f"value_{idx}"
+        df = map_x_to_time(raw_df.copy(), start_dt, stop_dt)
+        df = map_y_from_ticks(df, ticks, colname=tmp_col)
+        if tmp_col not in df or df.empty:
+            continue
+        vals = pd.to_numeric(df[tmp_col], errors="coerce")
+        if vals.dropna().empty:
+            continue
+        mapped.append((idx, df, vals))
+
+    if len(mapped) < 2:
+        return None
+
+    # choose azimuth as the curve with larger dynamic/range profile
+    scored = []
+    for idx, df, vals in mapped:
+        v = vals.dropna()
+        scored.append((idx, df, float(v.max() - v.min()), float(v.max())))
+    scored.sort(key=lambda t: (t[2], t[3]), reverse=True)
+    az_idx, az_df, _, _ = scored[0]
+    el_idx, el_df, _, _ = sorted(scored[1:], key=lambda t: t[3])[0]
+
+    az_col = f"value_{az_idx}"
+    el_col = f"value_{el_idx}"
+
+    az = az_df[["t_sec_rel", "time_HH:MM:SS", "time_iso_utc", "x_px", "y_px", az_col]].copy()
+    az = az.rename(columns={"x_px": "x_px_az", "y_px": "y_px_az", az_col: f"{ycol}_azimuth"})
+    el = el_df[["t_sec_rel", "x_px", "y_px", el_col]].copy()
+    el = el.rename(columns={"x_px": "x_px_el", "y_px": "y_px_el", el_col: f"{ycol}_elevation"})
+
+    az["t_sec_rel"] = pd.to_numeric(az["t_sec_rel"], errors="coerce")
+    el["t_sec_rel"] = pd.to_numeric(el["t_sec_rel"], errors="coerce")
+    az = az.dropna(subset=["t_sec_rel"]).sort_values("t_sec_rel")
+    el = el.dropna(subset=["t_sec_rel"]).sort_values("t_sec_rel")
+    if az.empty or el.empty:
+        return None
+
+    merged = pd.merge_asof(az, el, on="t_sec_rel", direction="nearest")
+    return merged
+
+
 # -------------------- Main --------------------
 
 def process_html(
@@ -1029,11 +1074,18 @@ def process_html(
             is_antenna = any(k in ycol.lower() for k in ("antenna", "azimuth", "elevation"))
             if is_antenna:
                 multi = extract_curves_for_header(hdr)
-                if multi:
-                    for idx, (series_name, df, ticks) in enumerate(multi, start=1):
-                        sname = re.sub(r"\W+", "_", series_name.lower()).strip("_") or f"series_{idx}"
-                        sheet_key = f"{ycol}_{sname}"
-                        write_section(sheet_key, df, ticks)
+                combined = build_antenna_combined_df(ycol, multi, start_dt, stop_dt) if multi else None
+                if combined is not None:
+                    section_frames[f"{ycol}_azimuth"] = combined[["t_sec_rel", f"{ycol}_azimuth"]].copy()
+                    section_frames[f"{ycol}_elevation"] = combined[["t_sec_rel", f"{ycol}_elevation"]].copy()
+                    sheet = safe_sheet_name(ycol)
+                    combined.to_excel(wr, sheet_name=sheet, index=False)
+                    # Save ticks of first detected curve as reference for this combined sheet
+                    tname = safe_sheet_name(ycol + "_ticks")
+                    ref_ticks = multi[0][2] if multi else pd.DataFrame([{"note": "no ticks"}])
+                    (ref_ticks if not ref_ticks.empty else pd.DataFrame([{"note": "no ticks"}])).to_excel(
+                        wr, sheet_name=tname, index=False
+                    )
                     continue
 
             df, ticks = extract_curve_for_header(hdr)
