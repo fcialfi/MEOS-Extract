@@ -11,11 +11,12 @@ on the console and inside the GUI.
 """
 
 from pathlib import Path
-from tkinter import Tk, Listbox, filedialog, StringVar, Text, PanedWindow, messagebox
+from tkinter import Tk, Listbox, filedialog, StringVar, Text, PanedWindow, BooleanVar
 from tkinter import ttk
 import logging
 
 from Extract_all_charts import process_html
+import pandas as pd
 
 
 LOG_PATH = Path(__file__).resolve().with_name("gui_app.log")
@@ -68,7 +69,7 @@ def main():
     main_frame = ttk.Frame(paned)
     paned.add(main_frame, minsize=120)
     main_frame.grid_columnconfigure(0, weight=1)
-    for r in range(3):
+    for r in range(4):
         # a non-zero ``minsize`` keeps rows visible when the window shrinks
         main_frame.grid_rowconfigure(r, weight=1, minsize=30)
     main_frame.grid_rowconfigure(3, weight=3)
@@ -99,11 +100,20 @@ def main():
     lbl_count = ttk.Label(main_frame)
     lbl_count.grid(row=4, column=0, sticky="ew", padx=5, pady=5)
 
+    stats_frame = ttk.LabelFrame(main_frame, text="Statistics")
+    stats_frame.grid(row=5, column=0, sticky="ew", padx=5, pady=(0, 5))
+    stat_demod_unlock = BooleanVar(value=False)
+    ttk.Checkbutton(
+        stats_frame,
+        text="demodulator_lock_state: count unlock events (1→0→1)",
+        variable=stat_demod_unlock,
+    ).pack(side="left", padx=5, pady=2)
+
     # Button bar uses ``pack`` inside its own frame; mixing layout managers
     # within one container is problematic, but separate frames may use
     # different managers safely.
     btn_frame = ttk.Frame(main_frame)
-    btn_frame.grid(row=5, column=0, sticky="ew", padx=5, pady=5)
+    btn_frame.grid(row=6, column=0, sticky="ew", padx=5, pady=5)
 
     # --- Lower pane: log output -----------------------------------------
     log_frame = ttk.Frame(paned)
@@ -157,7 +167,13 @@ def main():
         if output_dir["path"] is None:
             logging.warning("Output directory not selected")
             return
+
+        selected_stats = []
+        if stat_demod_unlock.get():
+            selected_stats.append("demodulator_lock_state")
+
         saved = []
+        stats_rows = []
         for i in range(listbox.size()):
             folder = Path(listbox.get(i))
             html_files = sorted(folder.glob("*.html"))
@@ -166,12 +182,28 @@ def main():
                 continue
             for report in html_files:
                 try:
-                    out = process_html(report, output_dir["path"])
+                    out = process_html(
+                        report,
+                        output_dir["path"],
+                        stats_selectors=selected_stats,
+                        stats_rows=stats_rows,
+                    )
                     logging.info("Saved: %s", out)
                     saved.append(out)
                 except Exception:
                     logging.exception("Error processing %s", report)
                     return
+
+        if selected_stats:
+            stats_path = output_dir["path"] / "lock_state_stats.xlsx"
+            if stats_rows:
+                pd.DataFrame(stats_rows).to_excel(stats_path, index=False)
+            else:
+                pd.DataFrame([
+                    {"note": "No matching selected labels found in processed files."}
+                ]).to_excel(stats_path, index=False)
+            logging.info("Saved statistics: %s", stats_path)
+
         logging.info("Completed: created %d files", len(saved))
 
     btn_add = ttk.Button(btn_frame, text="Add folder", command=add_folder)
