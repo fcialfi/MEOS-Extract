@@ -962,15 +962,23 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
         el_vals = aligned["elevation"].to_numpy()
         metric_vals = aligned["metric"].to_numpy()
 
-        # 2D polar (legacy output)
+        # 2D polar with explicit trajectory and elevation-normalized radius.
         theta = np.deg2rad(az_vals)
-        radius = 90.0 - el_vals
-        fig_p, ax_p = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(7, 5))
-        sc_p = ax_p.scatter(theta, radius, c=metric_vals, cmap="viridis", s=16)
+        radius_norm = (90.0 - el_vals) / 90.0
+        fig_p, ax_p = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(8, 6))
+        sc_p = ax_p.scatter(theta, radius_norm, c=metric_vals, cmap="turbo", s=26, zorder=3)
+        ax_p.plot(theta, radius_norm, color="black", linewidth=1.2, alpha=0.8, zorder=2, label="Track")
+        ax_p.scatter(theta[:1], radius_norm[:1], c="white", edgecolors="black", s=55, zorder=4, label="Start")
+        ax_p.scatter(theta[-1:], radius_norm[-1:], c="black", s=45, zorder=4, label="End")
         ax_p.set_theta_zero_location("N")
         ax_p.set_theta_direction(-1)
-        ax_p.set_title(f"{metric_col} vs azimuth/elevation")
+        ax_p.set_ylim(0.0, 1.0)
+        ax_p.set_rticks([0.0, 0.5, 1.0])
+        ax_p.set_yticklabels(["Elev 90°", "Elev 45°", "Elev 0°"])
         ax_p.set_rlabel_position(135)
+        ax_p.grid(alpha=0.35)
+        ax_p.set_title(f"{metric_col} on antenna track")
+        ax_p.legend(loc="upper left", bbox_to_anchor=(-0.18, 1.12), frameon=True)
         cbar_p = fig_p.colorbar(sc_p, ax=ax_p, pad=0.12)
         cbar_p.set_label(metric_col)
         polar_name = f"{out_path.stem}_{metric_col}_polar.png"
@@ -979,20 +987,23 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
         plt.close(fig_p)
         artifacts.append({"plot": metric_col, "kind": "polar", "path": str(polar_path)})
 
-        # 3D Cartesian view avoids 0°/360° discontinuity jumps.
+        # 3D sky-view in Cartesian coordinates (continuous at azimuth wrap 0°/360°).
         x, y, z = _spherical_to_cartesian(az_vals, el_vals)
-        fig3d = plt.figure(figsize=(8, 6))
+        fig3d = plt.figure(figsize=(9, 7))
         ax3d = fig3d.add_subplot(111, projection="3d")
-        sc3d = ax3d.scatter(x, y, z, c=metric_vals, cmap="viridis", s=18)
-        ax3d.plot(x, y, z, color="gray", alpha=0.35, linewidth=0.8)
-        ax3d.set_title(f"{metric_col} 3D sky-view (continuous at 0°/360°)")
+        sc3d = ax3d.scatter(x, y, z, c=metric_vals, cmap="turbo", s=22, depthshade=False)
+        ax3d.plot(x, y, z, color="black", alpha=0.55, linewidth=1.1)
+        ax3d.scatter([x[0]], [y[0]], [z[0]], c="white", edgecolors="black", s=60)
+        ax3d.scatter([x[-1]], [y[-1]], [z[-1]], c="black", s=50)
+        ax3d.set_title(f"{metric_col} 3D sky track")
         ax3d.set_xlabel("X")
         ax3d.set_ylabel("Y")
-        ax3d.set_zlabel("Z (elevation)")
+        ax3d.set_zlabel("sin(Elevation)")
         lim = 1.05
         ax3d.set_xlim(-lim, lim)
         ax3d.set_ylim(-lim, lim)
         ax3d.set_zlim(-0.05, lim)
+        ax3d.view_init(elev=28, azim=45)
         cbar3d = fig3d.colorbar(sc3d, ax=ax3d, pad=0.08)
         cbar3d.set_label(metric_col)
 
