@@ -511,66 +511,63 @@ def extract_curves_for_header(hdr):
     if not svgs:
         return []
 
-    def count_groups(svg):
-        return len([g for g in svg.find_all("g") if (g.get("id") or "").startswith("gnuplot_plot_")])
-
-    best_svg = max(svgs, key=count_groups)
-    ticks, axes = svg_axes_from_ticks(best_svg)
-    x_min_tick, x_max_tick, y_min_tick, y_max_tick = axes
+    candidates = []
 
     def has_missing_axes(values):
         return any(v is None or (isinstance(v, float) and np.isnan(v)) for v in values)
 
-    groups = [
-        g
-        for g in best_svg.find_all("g")
-        if (g.get("id") or "").startswith("gnuplot_plot_") and (g.find("path") or g.find("polyline"))
-    ]
-    if not groups:
-        groups = [g for g in best_svg.find_all("g") if g.find("path") or g.find("polyline")]
+    for sidx, svg in enumerate(svgs, start=1):
+        ticks, axes = svg_axes_from_ticks(svg)
+        x_min_tick, x_max_tick, y_min_tick, y_max_tick = axes
 
-    candidates = []
-
-    def score_pts(pts):
-        if has_missing_axes((x_min_tick, x_max_tick, y_min_tick, y_max_tick)):
-            return len(pts)
-        m = 2.0
-        return sum(
-            (x_min_tick - m <= x <= x_max_tick + m) and
-            (y_min_tick - m <= y <= y_max_tick + m)
-            for x, y in pts
-        )
-
-    for idx, g in enumerate(groups, start=1):
-        title_tag = g.find("title")
-        base_title = title_tag.get_text(" ", strip=True) if title_tag else f"series_{idx}"
-
-        for p in g.find_all("path"):
-            d = p.get("d")
-            if not d:
-                continue
-            Sx, Sy, Tx, Ty = cumulative_transform(p)
-            for sp_i, sp in enumerate(parse_path_subpaths(d), start=1):
-                pts = [apply_tr(x, y, Sx, Sy, Tx, Ty) for x, y in sp]
-                if len(pts) < 3:
-                    continue
-                candidates.append((score_pts(pts), f"{base_title}_p{sp_i}", pts))
-
-        for pl_i, pl in enumerate(g.find_all("polyline"), start=1):
-            raw = (pl.get("points") or "").strip()
-            if not raw:
-                continue
-            raw = re.sub(r"\s+", " ", raw)
-            pairs = re.findall(
-                r"([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s*,\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)",
-                raw,
+        def score_pts(pts):
+            if has_missing_axes((x_min_tick, x_max_tick, y_min_tick, y_max_tick)):
+                return len(pts)
+            m = 2.0
+            return sum(
+                (x_min_tick - m <= x <= x_max_tick + m) and
+                (y_min_tick - m <= y <= y_max_tick + m)
+                for x, y in pts
             )
-            pts_local = [(float(x), float(y)) for x, y in pairs]
-            if len(pts_local) < 3:
-                continue
-            Sx, Sy, Tx, Ty = cumulative_transform(pl)
-            pts = [apply_tr(x, y, Sx, Sy, Tx, Ty) for x, y in pts_local]
-            candidates.append((score_pts(pts), f"{base_title}_pl{pl_i}", pts))
+
+        groups = [
+            g
+            for g in svg.find_all("g")
+            if (g.get("id") or "").startswith("gnuplot_plot_") and (g.find("path") or g.find("polyline"))
+        ]
+        if not groups:
+            groups = [g for g in svg.find_all("g") if g.find("path") or g.find("polyline")]
+
+        for idx, g in enumerate(groups, start=1):
+            title_tag = g.find("title")
+            base_title = title_tag.get_text(" ", strip=True) if title_tag else f"svg{sidx}_series_{idx}"
+
+            for p in g.find_all("path"):
+                d = p.get("d")
+                if not d:
+                    continue
+                Sx, Sy, Tx, Ty = cumulative_transform(p)
+                for sp_i, sp in enumerate(parse_path_subpaths(d), start=1):
+                    pts = [apply_tr(x, y, Sx, Sy, Tx, Ty) for x, y in sp]
+                    if len(pts) < 3:
+                        continue
+                    candidates.append((score_pts(pts), f"{base_title}_p{sp_i}", pd.DataFrame(pts, columns=["x_px", "y_px"]), ticks))
+
+            for pl_i, pl in enumerate(g.find_all("polyline"), start=1):
+                raw = (pl.get("points") or "").strip()
+                if not raw:
+                    continue
+                raw = re.sub(r"\s+", " ", raw)
+                pairs = re.findall(
+                    r"([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s*,\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)",
+                    raw,
+                )
+                pts_local = [(float(x), float(y)) for x, y in pairs]
+                if len(pts_local) < 3:
+                    continue
+                Sx, Sy, Tx, Ty = cumulative_transform(pl)
+                pts = [apply_tr(x, y, Sx, Sy, Tx, Ty) for x, y in pts_local]
+                candidates.append((score_pts(pts), f"{base_title}_pl{pl_i}", pd.DataFrame(pts, columns=["x_px", "y_px"]), ticks))
 
     if not candidates:
         return []
@@ -578,15 +575,15 @@ def extract_curves_for_header(hdr):
     candidates.sort(key=lambda x: x[0], reverse=True)
     picked = []
     seen = set()
-    for score, title, pts in candidates:
-        xs = [p[0] for p in pts]
-        ys = [p[1] for p in pts]
-        key = (round(min(xs), 1), round(max(xs), 1), round(min(ys), 1), round(max(ys), 1), len(pts))
+    for score, title, df, ticks in candidates:
+        xs = df["x_px"].to_numpy()
+        ys = df["y_px"].to_numpy()
+        key = (round(float(xs.min()), 1), round(float(xs.max()), 1), round(float(ys.min()), 1), round(float(ys.max()), 1), len(df))
         if key in seen:
             continue
         seen.add(key)
-        picked.append((title, pd.DataFrame(pts, columns=["x_px", "y_px"]), ticks))
-        if len(picked) >= 6:
+        picked.append((title, df, ticks))
+        if len(picked) >= 10:
             break
 
     return picked
@@ -1017,11 +1014,6 @@ def process_html(
 
             cols = ["x_px", "y_px", "t_sec_rel", "time_HH:MM:SS", "time_iso_utc", sheet_key]
             df = df.reindex(cols, axis=1)
-            if not df.empty:
-                for col in ("time_HH:MM:SS", "time_iso_utc"):
-                    if col in df.columns:
-                        df[col] = pd.to_datetime(df[col])
-
             sheet = safe_sheet_name(sheet_key)
             if df.empty:
                 pd.DataFrame([{"note": "nessun dato estratto"}]).to_excel(wr, sheet_name=sheet, index=False)
