@@ -810,7 +810,7 @@ def _is_ebno_label(label: str) -> bool:
 
 def _is_snr_label(label: str) -> bool:
     n = _normalized_label(label)
-    return "snr" in n or "signaltonoiseratio" in n or "cn0" in n or "cno" in n
+    return "snr" in n or "signaltonoiseratio" in n or "signalnoiseratio" in n or "cn0" in n or "cno" in n
 
 
 def _find_metric_section(section_frames: dict, selector: str):
@@ -830,7 +830,7 @@ def _find_metric_section(section_frames: dict, selector: str):
     token_map = {
         "input_level": ["input", "level", "iflevel"],
         "eb_no": ["eb", "n0", "no", "esn0", "esno"],
-        "snr": ["snr", "cn0", "cno"],
+        "snr": ["snr", "cn0", "cno", "signal", "noise", "ratio"],
     }
     tokens = token_map.get(selector, [])
     scored = []
