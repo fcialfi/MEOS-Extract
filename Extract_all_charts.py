@@ -473,6 +473,121 @@ def extract_curve_for_header(hdr):
     return curve_px, ticks
 
 
+def extract_curves_for_header(hdr):
+    """Extract one curve per SVG plot group (useful for multi-series charts)."""
+    if hdr is None:
+        return []
+
+    svgs = []
+    for el in hdr.next_elements:
+        name = getattr(el, "name", None)
+        if name in ("h2", "h3"):
+            break
+        if name == "svg":
+            svgs.append(el)
+        elif name == "object" and el.get("type") == "image/svg+xml":
+            data = el.get("data", "")
+            m = re.match(r"^data:image/svg\+xml(;charset=[^;]+)?;base64,(.*)$", data, re.I)
+            try:
+                if m:
+                    svg_bytes = base64.b64decode(m.group(2))
+                elif data.startswith(("http://", "https://")):
+                    with urllib.request.urlopen(data) as resp:
+                        svg_bytes = resp.read()
+                elif data:
+                    with open(data, "rb") as f:
+                        svg_bytes = f.read()
+                else:
+                    continue
+                try:
+                    svg_soup = BeautifulSoup(svg_bytes, "xml")
+                except FeatureNotFound:
+                    svg_soup = BeautifulSoup(svg_bytes, "html.parser")
+                if svg_soup.svg:
+                    svgs.append(svg_soup.svg)
+            except Exception:
+                continue
+
+    if not svgs:
+        return []
+
+    def count_groups(s):
+        return len([g for g in s.find_all("g") if (g.get("id") or "").startswith("gnuplot_plot_")])
+
+    best_svg = max(svgs, key=count_groups)
+    ticks, axes = svg_axes_from_ticks(best_svg)
+    x_min_tick, x_max_tick, y_min_tick, y_max_tick = axes
+
+    def has_missing_axes(values):
+        return any(v is None or (isinstance(v, float) and np.isnan(v)) for v in values)
+
+    groups = [
+        g
+        for g in best_svg.find_all("g")
+        if (g.get("id") or "").startswith("gnuplot_plot_") and (g.find("path") or g.find("polyline"))
+    ]
+    if not groups:
+        groups = [g for g in best_svg.find_all("g") if g.find("path") or g.find("polyline")]
+
+    out = []
+    for idx, g in enumerate(groups, start=1):
+        best_pts = []
+        best_score = -1
+
+        for p in g.find_all("path"):
+            d = p.get("d")
+            if not d:
+                continue
+            Sx, Sy, Tx, Ty = cumulative_transform(p)
+            for sp in parse_path_subpaths(d):
+                pts = [apply_tr(x, y, Sx, Sy, Tx, Ty) for x, y in sp]
+                if has_missing_axes((x_min_tick, x_max_tick, y_min_tick, y_max_tick)):
+                    score = len(pts)
+                else:
+                    m = 2.0
+                    score = sum(
+                        (x_min_tick - m <= x <= x_max_tick + m) and
+                        (y_min_tick - m <= y <= y_max_tick + m)
+                        for x, y in pts
+                    )
+                if score > best_score:
+                    best_pts = pts
+                    best_score = score
+
+        for pl in g.find_all("polyline"):
+            raw = (pl.get("points") or "").strip()
+            if not raw:
+                continue
+            raw = re.sub(r"\s+", " ", raw)
+            pairs = re.findall(
+                r"([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s*,\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)",
+                raw
+            )
+            pts_local = [(float(x), float(y)) for x, y in pairs]
+            Sx, Sy, Tx, Ty = cumulative_transform(pl)
+            pts = [apply_tr(x, y, Sx, Sy, Tx, Ty) for x, y in pts_local]
+            if has_missing_axes((x_min_tick, x_max_tick, y_min_tick, y_max_tick)):
+                score = len(pts)
+            else:
+                m = 2.0
+                score = sum(
+                    (x_min_tick - m <= x <= x_max_tick + m) and
+                    (y_min_tick - m <= y <= y_max_tick + m)
+                    for x, y in pts
+                )
+            if score > best_score:
+                best_pts = pts
+                best_score = score
+
+        if not best_pts:
+            continue
+        title_tag = g.find("title")
+        title = title_tag.get_text(" ", strip=True) if title_tag else f"series_{idx}"
+        out.append((title, pd.DataFrame(best_pts, columns=["x_px", "y_px"]), ticks))
+
+    return out
+
+
 def map_x_to_time(df: pd.DataFrame, start_dt: datetime, stop_dt: datetime):
     """Mappa x_px in tempo assoluto usando Start/Stop (in secondi)."""
     if df.empty or not start_dt or not stop_dt:
@@ -865,39 +980,42 @@ def process_html(
         ]).to_excel(wr, sheet_name="__meta__", index=False)
 
         # Per ogni sezione, estrai e salva in un foglio
-        for hdr, ycol in targets:
-            df, ticks = extract_curve_for_header(hdr)
+        def write_section(sheet_key, df, ticks):
             df = map_x_to_time(df, start_dt, stop_dt)
-            df = map_y_from_ticks(df, ticks, colname=ycol)
-            section_frames[ycol] = df.copy()
+            df = map_y_from_ticks(df, ticks, colname=sheet_key)
+            section_frames[sheet_key] = df.copy()
 
-            cols = [
-                "x_px",
-                "y_px",
-                "t_sec_rel",
-                "time_HH:MM:SS",
-                "time_iso_utc",
-                ycol,
-            ]
+            cols = ["x_px", "y_px", "t_sec_rel", "time_HH:MM:SS", "time_iso_utc", sheet_key]
             df = df.reindex(cols, axis=1)
             if not df.empty:
                 for col in ("time_HH:MM:SS", "time_iso_utc"):
                     if col in df.columns:
                         df[col] = pd.to_datetime(df[col])
 
-            sheet = safe_sheet_name(ycol)
+            sheet = safe_sheet_name(sheet_key)
             if df.empty:
-                pd.DataFrame([{"note": "nessun dato estratto"}]).to_excel(
-                    wr, sheet_name=sheet, index=False
-                )
+                pd.DataFrame([{"note": "nessun dato estratto"}]).to_excel(wr, sheet_name=sheet, index=False)
             else:
                 df.to_excel(wr, sheet_name=sheet, index=False)
 
-            # Ticks in foglio dedicato
-            tname = safe_sheet_name(ycol + "_ticks")
+            tname = safe_sheet_name(sheet_key + "_ticks")
             (ticks if not ticks.empty else pd.DataFrame([{"note": "no ticks"}])).to_excel(
                 wr, sheet_name=tname, index=False
             )
+
+        for hdr, ycol in targets:
+            is_antenna = any(k in ycol.lower() for k in ("antenna", "azimuth", "elevation"))
+            if is_antenna:
+                multi = extract_curves_for_header(hdr)
+                if len(multi) >= 2:
+                    for idx, (series_name, df, ticks) in enumerate(multi, start=1):
+                        sname = re.sub(r"\W+", "_", series_name.lower()).strip("_") or f"series_{idx}"
+                        sheet_key = f"{ycol}_{sname}"
+                        write_section(sheet_key, df, ticks)
+                    continue
+
+            df, ticks = extract_curve_for_header(hdr)
+            write_section(ycol, df, ticks)
     wb = wr.book
     if "Sheet" in wb.sheetnames:
         wb.remove(wb["Sheet"])
