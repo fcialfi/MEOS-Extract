@@ -474,7 +474,7 @@ def extract_curve_for_header(hdr):
 
 
 def extract_curves_for_header(hdr):
-    """Extract one curve per SVG plot group (useful for multi-series charts)."""
+    """Extract multiple candidate curves for a header (multi-series friendly)."""
     if hdr is None:
         return []
 
@@ -511,8 +511,8 @@ def extract_curves_for_header(hdr):
     if not svgs:
         return []
 
-    def count_groups(s):
-        return len([g for g in s.find_all("g") if (g.get("id") or "").startswith("gnuplot_plot_")])
+    def count_groups(svg):
+        return len([g for g in svg.find_all("g") if (g.get("id") or "").startswith("gnuplot_plot_")])
 
     best_svg = max(svgs, key=count_groups)
     ticks, axes = svg_axes_from_ticks(best_svg)
@@ -529,63 +529,67 @@ def extract_curves_for_header(hdr):
     if not groups:
         groups = [g for g in best_svg.find_all("g") if g.find("path") or g.find("polyline")]
 
-    out = []
+    candidates = []
+
+    def score_pts(pts):
+        if has_missing_axes((x_min_tick, x_max_tick, y_min_tick, y_max_tick)):
+            return len(pts)
+        m = 2.0
+        return sum(
+            (x_min_tick - m <= x <= x_max_tick + m) and
+            (y_min_tick - m <= y <= y_max_tick + m)
+            for x, y in pts
+        )
+
     for idx, g in enumerate(groups, start=1):
-        best_pts = []
-        best_score = -1
+        title_tag = g.find("title")
+        base_title = title_tag.get_text(" ", strip=True) if title_tag else f"series_{idx}"
 
         for p in g.find_all("path"):
             d = p.get("d")
             if not d:
                 continue
             Sx, Sy, Tx, Ty = cumulative_transform(p)
-            for sp in parse_path_subpaths(d):
+            for sp_i, sp in enumerate(parse_path_subpaths(d), start=1):
                 pts = [apply_tr(x, y, Sx, Sy, Tx, Ty) for x, y in sp]
-                if has_missing_axes((x_min_tick, x_max_tick, y_min_tick, y_max_tick)):
-                    score = len(pts)
-                else:
-                    m = 2.0
-                    score = sum(
-                        (x_min_tick - m <= x <= x_max_tick + m) and
-                        (y_min_tick - m <= y <= y_max_tick + m)
-                        for x, y in pts
-                    )
-                if score > best_score:
-                    best_pts = pts
-                    best_score = score
+                if len(pts) < 3:
+                    continue
+                candidates.append((score_pts(pts), f"{base_title}_p{sp_i}", pts))
 
-        for pl in g.find_all("polyline"):
+        for pl_i, pl in enumerate(g.find_all("polyline"), start=1):
             raw = (pl.get("points") or "").strip()
             if not raw:
                 continue
             raw = re.sub(r"\s+", " ", raw)
             pairs = re.findall(
                 r"([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s*,\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)",
-                raw
+                raw,
             )
             pts_local = [(float(x), float(y)) for x, y in pairs]
+            if len(pts_local) < 3:
+                continue
             Sx, Sy, Tx, Ty = cumulative_transform(pl)
             pts = [apply_tr(x, y, Sx, Sy, Tx, Ty) for x, y in pts_local]
-            if has_missing_axes((x_min_tick, x_max_tick, y_min_tick, y_max_tick)):
-                score = len(pts)
-            else:
-                m = 2.0
-                score = sum(
-                    (x_min_tick - m <= x <= x_max_tick + m) and
-                    (y_min_tick - m <= y <= y_max_tick + m)
-                    for x, y in pts
-                )
-            if score > best_score:
-                best_pts = pts
-                best_score = score
+            candidates.append((score_pts(pts), f"{base_title}_pl{pl_i}", pts))
 
-        if not best_pts:
+    if not candidates:
+        return []
+
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    picked = []
+    seen = set()
+    for score, title, pts in candidates:
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        key = (round(min(xs), 1), round(max(xs), 1), round(min(ys), 1), round(max(ys), 1), len(pts))
+        if key in seen:
             continue
-        title_tag = g.find("title")
-        title = title_tag.get_text(" ", strip=True) if title_tag else f"series_{idx}"
-        out.append((title, pd.DataFrame(best_pts, columns=["x_px", "y_px"]), ticks))
+        seen.add(key)
+        picked.append((title, pd.DataFrame(pts, columns=["x_px", "y_px"]), ticks))
+        if len(picked) >= 6:
+            break
 
-    return out
+    return picked
 
 
 def map_x_to_time(df: pd.DataFrame, start_dt: datetime, stop_dt: datetime):
@@ -763,6 +767,30 @@ def _find_section_by_predicate(section_frames: dict, predicate):
     return None, None
 
 
+def _infer_az_el_from_antenna(section_frames: dict):
+    """Fallback: infer az/el from multiple antenna-like series when labels are generic."""
+    antenna = []
+    for ycol, df in section_frames.items():
+        n = _normalized_label(ycol)
+        if "antenna" not in n:
+            continue
+        if ycol not in df or df.empty:
+            continue
+        vals = pd.to_numeric(df[ycol], errors="coerce").dropna()
+        if vals.empty:
+            continue
+        antenna.append((ycol, df, float(vals.median()), float(vals.max()), float(vals.min())))
+
+    if len(antenna) < 2:
+        return None, None, None, None
+
+    # prefer a high-span/high-magnitude curve as azimuth and lower-magnitude as elevation
+    az_item = max(antenna, key=lambda t: (t[3] - t[4], t[3]))
+    el_candidates = [a for a in antenna if a[0] != az_item[0]]
+    el_item = min(el_candidates, key=lambda t: t[3])
+    return az_item[0], az_item[1], el_item[0], el_item[1]
+
+
 def _is_azimuth_label(label: str) -> bool:
     n = _normalized_label(label)
     return "azimuth" in n or n.startswith("az") or "antennaaz" in n
@@ -796,6 +824,8 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
 
     az_col, az_df = _find_section_by_predicate(section_frames, _is_azimuth_label)
     el_col, el_df = _find_section_by_predicate(section_frames, _is_elevation_label)
+    if az_df is None or el_df is None:
+        az_col, az_df, el_col, el_df = _infer_az_el_from_antenna(section_frames)
     if az_df is None or el_df is None:
         logger.warning(
             "Polar plots skipped: azimuth/elevation charts not found. Available sections: %s",
@@ -1007,7 +1037,7 @@ def process_html(
             is_antenna = any(k in ycol.lower() for k in ("antenna", "azimuth", "elevation"))
             if is_antenna:
                 multi = extract_curves_for_header(hdr)
-                if len(multi) >= 2:
+                if multi:
                     for idx, (series_name, df, ticks) in enumerate(multi, start=1):
                         sname = re.sub(r"\W+", "_", series_name.lower()).strip("_") or f"series_{idx}"
                         sheet_key = f"{ycol}_{sname}"
