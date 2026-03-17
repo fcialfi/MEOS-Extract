@@ -28,8 +28,11 @@ Un'interfaccia Tkinter è disponibile per elaborare più cartelle.
    ```
 2. Utilizzare il pulsante **Aggiungi cartella** per selezionare le cartelle contenenti `report.html`.
 3. Selezionare la cartella di destinazione con **Seleziona output**.
-4. Premere **Run** per generare gli Excel; ogni file salvato verrà segnalato.
-5. La GUI richiede `tkinter`. Se non è già presente, installarlo come indicato nella sezione *Dipendenze*.
+4. (Opzionale) Abilitare le statistiche nel riquadro **Statistics**.
+   - `demodulator_lock_state`: conta gli eventi di unlock interni al pass (pattern stabile `1→0→1`).
+5. Premere **Run** per generare gli Excel; ogni file salvato verrà segnalato.
+6. Se sono abilitate statistiche, viene creato anche `lock_state_stats.xlsx` nella cartella di output con il conteggio per file/report.
+7. La GUI richiede `tkinter`. Se non è già presente, installarlo come indicato nella sezione *Dipendenze*.
 
 I log dell'applicazione sono salvati nel file `gui_app.log` nella stessa directory dello script. Se il file non è scrivibile, i messaggi vengono mostrati solo in console.
 
