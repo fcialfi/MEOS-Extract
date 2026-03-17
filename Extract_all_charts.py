@@ -605,9 +605,42 @@ def derive_orbit_filename(soup: BeautifulSoup):
     return prefix, orbit_no
 
 
+
+def count_unlock_events(values):
+    """Count unlock events as stable 1→0→1 patterns."""
+    stable = []
+    for raw in values:
+        if pd.isna(raw):
+            continue
+        v = int(round(float(raw)))
+        if not stable or stable[-1] != v:
+            stable.append(v)
+    if len(stable) < 3:
+        return 0
+    return sum(1 for i in range(1, len(stable) - 1) if stable[i - 1] == 1 and stable[i] == 0 and stable[i + 1] == 1)
+
+
+def summarize_selected_stats(html_path: Path, out_path: Path, section_frames: dict, selectors):
+    """Create summary rows for selected lock-state statistics."""
+    rows = []
+    wanted = {s.lower() for s in (selectors or [])}
+    if not wanted:
+        return rows
+
+    for ycol, df in section_frames.items():
+        low = ycol.lower()
+        if "demodulator_lock_state" in wanted and "demodulator_lock_state" in low:
+            rows.append({
+                "input_html": str(html_path),
+                "output_excel": str(out_path),
+                "label": ycol,
+                "unlock_events": count_unlock_events(df[ycol]) if ycol in df else 0,
+            })
+    return rows
+
 # -------------------- Main --------------------
 
-def process_html(html_path: Path, output_dir: Path) -> Path:
+def process_html(html_path: Path, output_dir: Path, stats_selectors=None, stats_rows=None) -> Path:
     """Elabora un report HTML e salva i grafici in un file Excel.
 
     Parameters
@@ -692,6 +725,7 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
 
     # writer: salva sempre in .xlsx
     out_path = output_dir / (base + ".xlsx")
+    section_frames = {}
     with pd.ExcelWriter(out_path, engine="openpyxl") as wr:
         # Meta
         pd.DataFrame([
@@ -707,6 +741,7 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
             df, ticks = extract_curve_for_header(hdr)
             df = map_x_to_time(df, start_dt, stop_dt)
             df = map_y_from_ticks(df, ticks, colname=ycol)
+            section_frames[ycol] = df.copy()
 
             cols = [
                 "x_px",
@@ -738,6 +773,9 @@ def process_html(html_path: Path, output_dir: Path) -> Path:
     wb = wr.book
     if "Sheet" in wb.sheetnames:
         wb.remove(wb["Sheet"])
+
+    if stats_rows is not None:
+        stats_rows.extend(summarize_selected_stats(html, out_path, section_frames, stats_selectors))
 
     return out_path
 
