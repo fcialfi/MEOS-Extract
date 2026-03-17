@@ -866,13 +866,21 @@ def _align_metric_with_az_el(metric: pd.DataFrame, az: pd.DataFrame, el: pd.Data
     if metric.empty or az.empty or el.empty:
         return pd.DataFrame()
 
-    metric = metric.sort_values("t_sec_rel").drop_duplicates("t_sec_rel")
+    # Deduplicate and sort by time.
+    metric = metric.sort_values("t_sec_rel").groupby("t_sec_rel", as_index=False)["metric"].median()
     az = az.sort_values("t_sec_rel").drop_duplicates("t_sec_rel")
     el = el.sort_values("t_sec_rel").drop_duplicates("t_sec_rel")
     if len(metric) < 2 or len(az) < 2 or len(el) < 2:
         return pd.DataFrame()
 
-    t = metric["t_sec_rel"].to_numpy(dtype=float)
+    # Build a regular time base to avoid clustered/jagged point clouds.
+    n_samples = int(np.clip(max(len(metric), 200), 120, 800))
+    t = np.linspace(t0, t1, n_samples)
+
+    metric_t = metric["t_sec_rel"].to_numpy(dtype=float)
+    metric_v = metric["metric"].to_numpy(dtype=float)
+    metric_interp = np.interp(t, metric_t, metric_v)
+
     az_t = az["t_sec_rel"].to_numpy(dtype=float)
     el_t = el["t_sec_rel"].to_numpy(dtype=float)
 
@@ -887,7 +895,7 @@ def _align_metric_with_az_el(metric: pd.DataFrame, az: pd.DataFrame, el: pd.Data
 
     aligned = pd.DataFrame({
         "t_sec_rel": t,
-        "metric": metric["metric"].to_numpy(dtype=float),
+        "metric": metric_interp,
         "azimuth": az_interp,
         "elevation": el_interp,
     })
