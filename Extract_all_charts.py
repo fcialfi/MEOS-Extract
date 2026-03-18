@@ -915,6 +915,27 @@ def _spherical_to_cartesian(az_deg, el_deg):
 
 
 
+
+
+def _split_azimuth_wrapped_segments(az_deg, el_deg, jump_threshold=180.0):
+    """Split a track whenever wrapped azimuth jumps across the 0/360 boundary."""
+    az = np.asarray(az_deg, dtype=float)
+    el = np.asarray(el_deg, dtype=float)
+    if len(az) != len(el) or len(az) == 0:
+        return []
+
+    wrapped = np.mod(az, 360.0)
+    split_points = np.where(np.abs(np.diff(wrapped)) > float(jump_threshold))[0] + 1
+    chunks = []
+    start = 0
+    for stop in split_points:
+        if stop - start >= 2:
+            chunks.append((wrapped[start:stop], el[start:stop]))
+        start = stop
+    if len(wrapped) - start >= 2:
+        chunks.append((wrapped[start:], el[start:]))
+    return chunks
+
 def _build_base_track(az: pd.DataFrame, el: pd.DataFrame, n_points: int = 500):
     """Build a smooth antenna base track from azimuth/elevation time series."""
     t0 = max(float(az["t_sec_rel"].min()), float(el["t_sec_rel"].min()))
@@ -1005,12 +1026,14 @@ def collect_polar_plot_series(section_frames: dict, selectors, source_label=None
             logger.warning("Polar/3D plot '%s' skipped: insufficient valid angle samples", metric_col)
             continue
 
+        point_source = np.array([source_label or "combined"] * len(az_vals), dtype=object)
         collected[selector] = {
             "selector": selector,
             "metric_col": metric_col,
             "azimuth": az_vals,
             "elevation": el_vals,
             "metric": metric_vals,
+            "point_source": point_source,
             "track_az": np.mod(track_az, 360.0),
             "track_el": track_el,
             "source_label": source_label or "combined",
@@ -1026,6 +1049,115 @@ def collect_polar_plot_series(section_frames: dict, selectors, source_label=None
     return collected
 
 
+def _build_interactive_plot_artifacts(out_dir: Path, stem: str, series_map: dict, include_source=False):
+    """Render interactive Plotly HTML artifacts with hover metadata when available."""
+    if not series_map:
+        return []
+
+    try:
+        import plotly.graph_objects as go
+    except ImportError:
+        logger.warning("plotly not available: skipping interactive plot generation")
+        return []
+
+    artifacts = []
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    for selector in ("input_level", "eb_no", "snr"):
+        series = series_map.get(selector)
+        if not series:
+            continue
+
+        metric_col = series["metric_col"]
+        az_vals = np.asarray(series["azimuth"], dtype=float)
+        el_vals = np.asarray(series["elevation"], dtype=float)
+        metric_vals = np.asarray(series["metric"], dtype=float)
+        point_source = np.asarray(series.get("point_source", np.array([series.get("source_label", "combined")] * len(az_vals), dtype=object)), dtype=object)
+        track_az = np.asarray(series.get("track_az", []), dtype=float)
+        track_el = np.asarray(series.get("track_el", []), dtype=float)
+        track_segments = series.get("track_segments") or []
+        source_label = series.get("source_label", "combined")
+        title_suffix = f" ({source_label})" if include_source else ""
+        color_title = "SNR (dB)" if "snr" in metric_col.lower() or "noise" in metric_col.lower() else metric_col
+
+        customdata = np.column_stack([point_source, az_vals, el_vals, metric_vals]) if len(az_vals) else np.empty((0, 4), dtype=object)
+        fig_p = go.Figure()
+        if track_segments:
+            for seg in track_segments:
+                seg_az = np.asarray(seg.get("azimuth", []), dtype=float)
+                seg_el = np.asarray(seg.get("elevation", []), dtype=float)
+                seg_source = seg.get("source", source_label)
+                for chunk_az, chunk_el in _split_azimuth_wrapped_segments(seg_az, seg_el):
+                    fig_p.add_trace(go.Scatterpolar(
+                        theta=chunk_az,
+                        r=1.0 - (chunk_el / 90.0),
+                        mode="lines",
+                        line=dict(color="black", width=2),
+                        hovertemplate=f"Orbit: {seg_source}<extra>track</extra>",
+                        showlegend=False,
+                    ))
+        elif len(track_az) and len(track_el):
+            for chunk_az, chunk_el in _split_azimuth_wrapped_segments(track_az, track_el):
+                fig_p.add_trace(go.Scatterpolar(
+                    theta=chunk_az,
+                    r=1.0 - (chunk_el / 90.0),
+                    mode="lines",
+                    line=dict(color="black", width=2),
+                    hovertemplate=f"Orbit: {source_label}<extra>track</extra>",
+                    showlegend=False,
+                ))
+        fig_p.add_trace(go.Scatterpolar(
+            theta=az_vals,
+            r=1.0 - (el_vals / 90.0),
+            mode="markers",
+            marker=dict(color=metric_vals, colorscale="Jet", size=7, colorbar=dict(title=color_title)),
+            customdata=customdata,
+            hovertemplate="Orbit: %{customdata[0]}<br>Azimuth: %{customdata[1]:.2f}°<br>Elevation: %{customdata[2]:.2f}°<br>Value: %{customdata[3]:.2f}<extra></extra>",
+            showlegend=False,
+        ))
+        if len(az_vals):
+            fig_p.add_trace(go.Scatterpolar(theta=[az_vals[0]], r=[1.0 - (el_vals[0] / 90.0)], mode="markers", marker=dict(symbol="triangle-up", size=12, color="#00AA88"), name="Start", hovertemplate=f"Orbit: {point_source[0]}<extra>start</extra>"))
+            fig_p.add_trace(go.Scatterpolar(theta=[az_vals[-1]], r=[1.0 - (el_vals[-1] / 90.0)], mode="markers", marker=dict(symbol="diamond", size=11, color="#66CCFF"), name="End", hovertemplate=f"Orbit: {point_source[-1]}<extra>end</extra>"))
+        fig_p.update_layout(
+            title=f"{metric_col} on antenna track{title_suffix}",
+            polar=dict(angularaxis=dict(direction="clockwise", rotation=90), radialaxis=dict(range=[0, 1.02], tickvals=[0, 0.5, 1.0], ticktext=["0", "0.5", "1"])),
+        )
+        html_p = out_dir / f"{stem}_{metric_col}_polar_interactive.html"
+        fig_p.write_html(str(html_p), include_plotlyjs="cdn")
+        artifacts.append({"plot": metric_col, "kind": "polar_interactive", "path": str(html_p), "source": source_label})
+
+        x, y, z = _spherical_to_cartesian(az_vals, el_vals)
+        custom3d = np.column_stack([point_source, az_vals, el_vals, metric_vals]) if len(az_vals) else np.empty((0, 4), dtype=object)
+        fig3 = go.Figure()
+        if track_segments:
+            for seg in track_segments:
+                seg_az = np.asarray(seg.get("azimuth", []), dtype=float)
+                seg_el = np.asarray(seg.get("elevation", []), dtype=float)
+                seg_source = seg.get("source", source_label)
+                for chunk_az, chunk_el in _split_azimuth_wrapped_segments(seg_az, seg_el):
+                    tx, ty, tz = _spherical_to_cartesian(chunk_az, chunk_el)
+                    fig3.add_trace(go.Scatter3d(x=tx, y=ty, z=tz, mode="lines", line=dict(color="black", width=4), hovertemplate=f"Orbit: {seg_source}<extra>track</extra>", showlegend=False))
+        elif len(track_az) and len(track_el):
+            for chunk_az, chunk_el in _split_azimuth_wrapped_segments(track_az, track_el):
+                tx, ty, tz = _spherical_to_cartesian(chunk_az, chunk_el)
+                fig3.add_trace(go.Scatter3d(x=tx, y=ty, z=tz, mode="lines", line=dict(color="black", width=4), hovertemplate=f"Orbit: {source_label}<extra>track</extra>", showlegend=False))
+        fig3.add_trace(go.Scatter3d(
+            x=x, y=y, z=z,
+            mode="markers",
+            marker=dict(size=4, color=metric_vals, colorscale="Turbo", colorbar=dict(title=color_title)),
+            customdata=custom3d,
+            hovertemplate="Orbit: %{customdata[0]}<br>Azimuth: %{customdata[1]:.2f}°<br>Elevation: %{customdata[2]:.2f}°<br>Value: %{customdata[3]:.2f}<extra></extra>",
+            showlegend=False,
+        ))
+        html3 = out_dir / f"{stem}_{metric_col}_3d_interactive.html"
+        fig3.update_layout(title=f"{metric_col} 3D spherical sky-view{title_suffix}", scene=dict(xaxis_title="X", yaxis_title="Y", zaxis_title="Z"))
+        fig3.write_html(str(html3), include_plotlyjs="cdn")
+        artifacts.append({"plot": metric_col, "kind": "3d_interactive", "path": str(html3), "source": source_label})
+
+    return artifacts
+
+
 def _build_plot_artifacts(out_dir: Path, stem: str, series_map: dict, include_source=False):
     """Render polar/3D plot artifacts from pre-aligned series."""
     if not series_map:
@@ -1033,9 +1165,11 @@ def _build_plot_artifacts(out_dir: Path, stem: str, series_map: dict, include_so
 
     try:
         import matplotlib.pyplot as plt
+        has_matplotlib = True
     except ImportError:
-        logger.warning("matplotlib not available: skipping polar plot generation")
-        return []
+        plt = None
+        has_matplotlib = False
+        logger.warning("matplotlib not available: skipping PNG plot generation")
 
     artifacts = []
     out_dir = Path(out_dir)
@@ -1056,90 +1190,93 @@ def _build_plot_artifacts(out_dir: Path, stem: str, series_map: dict, include_so
         source_label = series.get("source_label", "combined")
         title_suffix = f" ({source_label})" if include_source else ""
 
-        theta = np.deg2rad(np.mod(az_vals, 360.0))
-        radius_norm = 1.0 - (el_vals / 90.0)
+        if has_matplotlib:
+                theta = np.deg2rad(np.mod(az_vals, 360.0))
+                radius_norm = 1.0 - (el_vals / 90.0)
 
-        fig_p, ax_p = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(8, 6))
-        if track_segments:
-            for seg_az, seg_el in track_segments:
-                seg_az = np.asarray(seg_az, dtype=float)
-                seg_el = np.asarray(seg_el, dtype=float)
-                if len(seg_az) < 2 or len(seg_el) < 2:
-                    continue
-                seg_theta = np.deg2rad(np.mod(seg_az, 360.0))
-                seg_radius = 1.0 - (seg_el / 90.0)
-                ax_p.plot(seg_theta, seg_radius, color="black", linewidth=1.6, alpha=0.95, zorder=1)
-        elif len(track_az) and len(track_el):
-            track_theta = np.deg2rad(np.mod(track_az, 360.0))
-            track_radius = 1.0 - (track_el / 90.0)
-            ax_p.plot(track_theta, track_radius, color="black", linewidth=1.6, alpha=0.95, zorder=1)
-        sc_p = ax_p.scatter(theta, radius_norm, c=metric_vals, cmap="jet", s=34, zorder=3, edgecolors="none")
-        ax_p.scatter(theta[:1], radius_norm[:1], c="#00AA88", marker="^", s=72, zorder=4)
-        ax_p.scatter(theta[-1:], radius_norm[-1:], c="#66CCFF", marker="D", s=70, zorder=4)
-        ax_p.set_theta_zero_location("N")
-        ax_p.set_theta_direction(-1)
-        ax_p.set_ylim(0.0, 1.02)
-        ax_p.set_rticks([0.0, 0.5, 1.0])
-        ax_p.set_yticklabels(["0", "0.5", "1"])
-        ax_p.set_rlabel_position(18)
-        ax_p.grid(alpha=0.35)
-        ax_p.set_title(f"{metric_col} on antenna track{title_suffix}")
-        cbar_p = fig_p.colorbar(sc_p, ax=ax_p, pad=0.10)
-        cbar_p.set_label("SNR (dB)" if "snr" in metric_col.lower() or "noise" in metric_col.lower() else metric_col)
-        polar_path = out_dir / f"{stem}_{metric_col}_polar.png"
-        fig_p.savefig(polar_path, dpi=150, bbox_inches="tight")
-        plt.close(fig_p)
-        artifacts.append({"plot": metric_col, "kind": "polar", "path": str(polar_path), "source": source_label})
+                fig_p, ax_p = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(8, 6))
+                if track_segments:
+                    for seg in track_segments:
+                        seg_az = np.asarray(seg.get("azimuth", []), dtype=float)
+                        seg_el = np.asarray(seg.get("elevation", []), dtype=float)
+                        for chunk_az, chunk_el in _split_azimuth_wrapped_segments(seg_az, seg_el):
+                            seg_theta = np.deg2rad(chunk_az)
+                            seg_radius = 1.0 - (chunk_el / 90.0)
+                            ax_p.plot(seg_theta, seg_radius, color="black", linewidth=1.6, alpha=0.95, zorder=1)
+                elif len(track_az) and len(track_el):
+                    for chunk_az, chunk_el in _split_azimuth_wrapped_segments(track_az, track_el):
+                        track_theta = np.deg2rad(chunk_az)
+                        track_radius = 1.0 - (chunk_el / 90.0)
+                        ax_p.plot(track_theta, track_radius, color="black", linewidth=1.6, alpha=0.95, zorder=1)
+                sc_p = ax_p.scatter(theta, radius_norm, c=metric_vals, cmap="jet", s=34, zorder=3, edgecolors="none")
+                ax_p.scatter(theta[:1], radius_norm[:1], c="#00AA88", marker="^", s=72, zorder=4)
+                ax_p.scatter(theta[-1:], radius_norm[-1:], c="#66CCFF", marker="D", s=70, zorder=4)
+                ax_p.set_theta_zero_location("N")
+                ax_p.set_theta_direction(-1)
+                ax_p.set_ylim(0.0, 1.02)
+                ax_p.set_rticks([0.0, 0.5, 1.0])
+                ax_p.set_yticklabels(["0", "0.5", "1"])
+                ax_p.set_rlabel_position(18)
+                ax_p.grid(alpha=0.35)
+                ax_p.set_title(f"{metric_col} on antenna track{title_suffix}")
+                cbar_p = fig_p.colorbar(sc_p, ax=ax_p, pad=0.10)
+                cbar_p.set_label("SNR (dB)" if "snr" in metric_col.lower() or "noise" in metric_col.lower() else metric_col)
+                polar_path = out_dir / f"{stem}_{metric_col}_polar.png"
+                fig_p.savefig(polar_path, dpi=150, bbox_inches="tight")
+                plt.close(fig_p)
+                artifacts.append({"plot": metric_col, "kind": "polar", "path": str(polar_path), "source": source_label})
 
-        x, y, z = _spherical_to_cartesian(az_vals, el_vals)
+                x, y, z = _spherical_to_cartesian(az_vals, el_vals)
 
-        fig3d = plt.figure(figsize=(9, 7))
-        ax3d = fig3d.add_subplot(111, projection="3d")
+                fig3d = plt.figure(figsize=(9, 7))
+                ax3d = fig3d.add_subplot(111, projection="3d")
 
-        az_grid = np.linspace(0, 2 * np.pi, 72)
-        el_grid = np.linspace(0, np.pi / 2, 28)
-        AZ, EL = np.meshgrid(az_grid, el_grid)
-        Xs = np.cos(EL) * np.cos(AZ)
-        Ys = np.cos(EL) * np.sin(AZ)
-        Zs = np.sin(EL)
-        ax3d.plot_wireframe(Xs, Ys, Zs, rstride=3, cstride=6, color="lightgray", linewidth=0.5, alpha=0.45)
+                az_grid = np.linspace(0, 2 * np.pi, 72)
+                el_grid = np.linspace(0, np.pi / 2, 28)
+                AZ, EL = np.meshgrid(az_grid, el_grid)
+                Xs = np.cos(EL) * np.cos(AZ)
+                Ys = np.cos(EL) * np.sin(AZ)
+                Zs = np.sin(EL)
+                ax3d.plot_wireframe(Xs, Ys, Zs, rstride=3, cstride=6, color="lightgray", linewidth=0.5, alpha=0.45)
 
-        hz = np.linspace(0, 2 * np.pi, 240)
-        ax3d.plot(np.cos(hz), np.sin(hz), np.zeros_like(hz), color="gray", linewidth=1.0, alpha=0.8)
+                hz = np.linspace(0, 2 * np.pi, 240)
+                ax3d.plot(np.cos(hz), np.sin(hz), np.zeros_like(hz), color="gray", linewidth=1.0, alpha=0.8)
 
-        if track_segments:
-            for seg_az, seg_el in track_segments:
-                seg_az = np.asarray(seg_az, dtype=float)
-                seg_el = np.asarray(seg_el, dtype=float)
-                if len(seg_az) < 2 or len(seg_el) < 2:
-                    continue
-                tx, ty, tz = _spherical_to_cartesian(seg_az, seg_el)
-                ax3d.plot(tx, ty, tz, color="black", alpha=0.75, linewidth=1.4)
-        elif len(track_az) and len(track_el):
-            tx, ty, tz = _spherical_to_cartesian(track_az, track_el)
-            ax3d.plot(tx, ty, tz, color="black", alpha=0.75, linewidth=1.4)
-        sc3d = ax3d.scatter(x, y, z, c=metric_vals, cmap="turbo", s=24, depthshade=False)
-        ax3d.scatter([0.0], [0.0], [0.0], c="black", s=42)
-        ax3d.text(0.02, 0.02, 0.02, "Antenna", fontsize=8)
-        ax3d.scatter([x[0]], [y[0]], [z[0]], c="white", edgecolors="black", s=60)
-        ax3d.scatter([x[-1]], [y[-1]], [z[-1]], c="black", s=50)
-        ax3d.set_title(f"{metric_col} 3D spherical sky-view{title_suffix}")
-        ax3d.set_xlabel("X")
-        ax3d.set_ylabel("Y")
-        ax3d.set_zlabel("Z")
-        lim = 1.05
-        ax3d.set_xlim(-lim, lim)
-        ax3d.set_ylim(-lim, lim)
-        ax3d.set_zlim(0.0, lim)
-        ax3d.view_init(elev=24, azim=48)
-        cbar3d = fig3d.colorbar(sc3d, ax=ax3d, pad=0.08)
-        cbar3d.set_label(metric_col)
+                if track_segments:
+                    for seg in track_segments:
+                        seg_az = np.asarray(seg.get("azimuth", []), dtype=float)
+                        seg_el = np.asarray(seg.get("elevation", []), dtype=float)
+                        for chunk_az, chunk_el in _split_azimuth_wrapped_segments(seg_az, seg_el):
+                            tx, ty, tz = _spherical_to_cartesian(chunk_az, chunk_el)
+                            ax3d.plot(tx, ty, tz, color="black", alpha=0.75, linewidth=1.4)
+                elif len(track_az) and len(track_el):
+                    for chunk_az, chunk_el in _split_azimuth_wrapped_segments(track_az, track_el):
+                        tx, ty, tz = _spherical_to_cartesian(chunk_az, chunk_el)
+                        ax3d.plot(tx, ty, tz, color="black", alpha=0.75, linewidth=1.4)
+                sc3d = ax3d.scatter(x, y, z, c=metric_vals, cmap="turbo", s=24, depthshade=False)
+                ax3d.scatter([0.0], [0.0], [0.0], c="black", s=42)
+                ax3d.text(0.02, 0.02, 0.02, "Antenna", fontsize=8)
+                ax3d.scatter([x[0]], [y[0]], [z[0]], c="white", edgecolors="black", s=60)
+                ax3d.scatter([x[-1]], [y[-1]], [z[-1]], c="black", s=50)
+                ax3d.set_title(f"{metric_col} 3D spherical sky-view{title_suffix}")
+                ax3d.set_xlabel("X")
+                ax3d.set_ylabel("Y")
+                ax3d.set_zlabel("Z")
+                lim = 1.05
+                ax3d.set_xlim(-lim, lim)
+                ax3d.set_ylim(-lim, lim)
+                ax3d.set_zlim(0.0, lim)
+                ax3d.view_init(elev=24, azim=48)
+                cbar3d = fig3d.colorbar(sc3d, ax=ax3d, pad=0.08)
+                cbar3d.set_label(metric_col)
 
-        png3d_path = out_dir / f"{stem}_{metric_col}_3d.png"
-        fig3d.savefig(png3d_path, dpi=150, bbox_inches="tight")
-        plt.close(fig3d)
-        artifacts.append({"plot": metric_col, "kind": "3d", "path": str(png3d_path), "source": source_label})
+                png3d_path = out_dir / f"{stem}_{metric_col}_3d.png"
+                fig3d.savefig(png3d_path, dpi=150, bbox_inches="tight")
+                plt.close(fig3d)
+                artifacts.append({"plot": metric_col, "kind": "3d", "path": str(png3d_path), "source": source_label})
 
+
+    artifacts.extend(_build_interactive_plot_artifacts(out_dir, stem, series_map, include_source=include_source))
     return artifacts
 
 
@@ -1165,7 +1302,11 @@ def generate_combined_polar_plot_artifacts(output_dir: Path, plot_series_rows: l
         track_az_parts = [np.asarray(row["track_az"], dtype=float) for row in rows if len(row.get("track_az", []))]
         track_el_parts = [np.asarray(row["track_el"], dtype=float) for row in rows if len(row.get("track_el", []))]
         track_segments = [
-            (np.asarray(row["track_az"], dtype=float), np.asarray(row["track_el"], dtype=float))
+            {
+                "azimuth": np.asarray(row["track_az"], dtype=float),
+                "elevation": np.asarray(row["track_el"], dtype=float),
+                "source": row.get("source_label", "combined"),
+            }
             for row in rows
             if len(row.get("track_az", [])) and len(row.get("track_el", []))
         ]
@@ -1175,6 +1316,10 @@ def generate_combined_polar_plot_artifacts(output_dir: Path, plot_series_rows: l
             "azimuth": np.concatenate([np.asarray(row["azimuth"], dtype=float) for row in rows]),
             "elevation": np.concatenate([np.asarray(row["elevation"], dtype=float) for row in rows]),
             "metric": np.concatenate([np.asarray(row["metric"], dtype=float) for row in rows]),
+            "point_source": np.concatenate([
+                np.asarray(row.get("point_source", np.array([row.get("source_label", "combined")] * len(row["azimuth"]), dtype=object)), dtype=object)
+                for row in rows
+            ]),
             "track_az": np.concatenate(track_az_parts) if track_az_parts else np.array([]),
             "track_el": np.concatenate(track_el_parts) if track_el_parts else np.array([]),
             "track_segments": track_segments,
