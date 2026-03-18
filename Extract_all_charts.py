@@ -923,9 +923,10 @@ def _continuous_azimuth_degrees(az_deg):
 
 
 def _polar_display_azimuth(az_deg):
-    """Mirror azimuth around the 0°/180° axis for the 2D polar display."""
+    """Keep azimuth <= 270° unchanged and fold only the >270° tail toward 45°."""
     az = np.asarray(az_deg, dtype=float)
-    return np.mod(360.0 - az, 360.0)
+    wrapped = np.mod(az, 360.0)
+    return np.where(wrapped > 270.0, 360.0 - wrapped, wrapped)
 
 
 def _build_base_track(az: pd.DataFrame, el: pd.DataFrame, n_points: int = 500):
@@ -1196,9 +1197,20 @@ def _numeric_tick_groups(ticks: pd.DataFrame):
     if len(num) < 2:
         return [num]
 
-    xm = float(num["x_px"].median())
-    left = num[num["x_px"] <= xm]
-    right = num[num["x_px"] > xm]
+    x_sorted = np.sort(num["x_px"].to_numpy(dtype=float))
+    x_diffs = np.diff(x_sorted)
+    if len(x_diffs) == 0 or np.nanmax(x_diffs) <= 0:
+        return [num]
+
+    split_at = int(np.nanargmax(x_diffs))
+    gap = float(x_diffs[split_at])
+    total_span = float(x_sorted[-1] - x_sorted[0])
+    if total_span <= 0 or gap < max(8.0, 0.15 * total_span):
+        return [num]
+
+    threshold = float((x_sorted[split_at] + x_sorted[split_at + 1]) / 2.0)
+    left = num[num["x_px"] <= threshold]
+    right = num[num["x_px"] > threshold]
     groups = []
     if len(left) >= 2:
         groups.append(left)
