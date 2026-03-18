@@ -1052,16 +1052,26 @@ def _build_plot_artifacts(out_dir: Path, stem: str, series_map: dict, include_so
         metric_vals = np.asarray(series["metric"], dtype=float)
         track_az = np.asarray(series.get("track_az", []), dtype=float)
         track_el = np.asarray(series.get("track_el", []), dtype=float)
+        track_segments = series.get("track_segments") or []
         source_label = series.get("source_label", "combined")
         title_suffix = f" ({source_label})" if include_source else ""
 
         theta = np.deg2rad(np.mod(az_vals, 360.0))
         radius_norm = 1.0 - (el_vals / 90.0)
-        track_theta = np.deg2rad(np.mod(track_az, 360.0)) if len(track_az) else np.array([])
-        track_radius = 1.0 - (track_el / 90.0) if len(track_el) else np.array([])
 
         fig_p, ax_p = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(8, 6))
-        if len(track_theta):
+        if track_segments:
+            for seg_az, seg_el in track_segments:
+                seg_az = np.asarray(seg_az, dtype=float)
+                seg_el = np.asarray(seg_el, dtype=float)
+                if len(seg_az) < 2 or len(seg_el) < 2:
+                    continue
+                seg_theta = np.deg2rad(np.mod(seg_az, 360.0))
+                seg_radius = 1.0 - (seg_el / 90.0)
+                ax_p.plot(seg_theta, seg_radius, color="black", linewidth=1.6, alpha=0.95, zorder=1)
+        elif len(track_az) and len(track_el):
+            track_theta = np.deg2rad(np.mod(track_az, 360.0))
+            track_radius = 1.0 - (track_el / 90.0)
             ax_p.plot(track_theta, track_radius, color="black", linewidth=1.6, alpha=0.95, zorder=1)
         sc_p = ax_p.scatter(theta, radius_norm, c=metric_vals, cmap="jet", s=34, zorder=3, edgecolors="none")
         ax_p.scatter(theta[:1], radius_norm[:1], c="#00AA88", marker="^", s=72, zorder=4)
@@ -1082,7 +1092,6 @@ def _build_plot_artifacts(out_dir: Path, stem: str, series_map: dict, include_so
         artifacts.append({"plot": metric_col, "kind": "polar", "path": str(polar_path), "source": source_label})
 
         x, y, z = _spherical_to_cartesian(az_vals, el_vals)
-        tx, ty, tz = _spherical_to_cartesian(track_az, track_el) if len(track_az) else (np.array([]), np.array([]), np.array([]))
 
         fig3d = plt.figure(figsize=(9, 7))
         ax3d = fig3d.add_subplot(111, projection="3d")
@@ -1098,7 +1107,16 @@ def _build_plot_artifacts(out_dir: Path, stem: str, series_map: dict, include_so
         hz = np.linspace(0, 2 * np.pi, 240)
         ax3d.plot(np.cos(hz), np.sin(hz), np.zeros_like(hz), color="gray", linewidth=1.0, alpha=0.8)
 
-        if len(tx):
+        if track_segments:
+            for seg_az, seg_el in track_segments:
+                seg_az = np.asarray(seg_az, dtype=float)
+                seg_el = np.asarray(seg_el, dtype=float)
+                if len(seg_az) < 2 or len(seg_el) < 2:
+                    continue
+                tx, ty, tz = _spherical_to_cartesian(seg_az, seg_el)
+                ax3d.plot(tx, ty, tz, color="black", alpha=0.75, linewidth=1.4)
+        elif len(track_az) and len(track_el):
+            tx, ty, tz = _spherical_to_cartesian(track_az, track_el)
             ax3d.plot(tx, ty, tz, color="black", alpha=0.75, linewidth=1.4)
         sc3d = ax3d.scatter(x, y, z, c=metric_vals, cmap="turbo", s=24, depthshade=False)
         ax3d.scatter([0.0], [0.0], [0.0], c="black", s=42)
@@ -1146,6 +1164,11 @@ def generate_combined_polar_plot_artifacts(output_dir: Path, plot_series_rows: l
             continue
         track_az_parts = [np.asarray(row["track_az"], dtype=float) for row in rows if len(row.get("track_az", []))]
         track_el_parts = [np.asarray(row["track_el"], dtype=float) for row in rows if len(row.get("track_el", []))]
+        track_segments = [
+            (np.asarray(row["track_az"], dtype=float), np.asarray(row["track_el"], dtype=float))
+            for row in rows
+            if len(row.get("track_az", [])) and len(row.get("track_el", []))
+        ]
         combined[selector] = {
             "selector": selector,
             "metric_col": rows[0]["metric_col"],
@@ -1154,6 +1177,7 @@ def generate_combined_polar_plot_artifacts(output_dir: Path, plot_series_rows: l
             "metric": np.concatenate([np.asarray(row["metric"], dtype=float) for row in rows]),
             "track_az": np.concatenate(track_az_parts) if track_az_parts else np.array([]),
             "track_el": np.concatenate(track_el_parts) if track_el_parts else np.array([]),
+            "track_segments": track_segments,
             "source_label": "all files",
         }
 
