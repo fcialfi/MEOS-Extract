@@ -15,7 +15,7 @@ from tkinter import Tk, Listbox, filedialog, StringVar, Text, PanedWindow, Boole
 from tkinter import ttk
 import logging
 
-from Extract_all_charts import process_html
+from Extract_all_charts import process_html, generate_combined_polar_plot_artifacts
 import pandas as pd
 
 
@@ -121,12 +121,28 @@ def main():
     ttk.Checkbutton(stats_frame, text="Polar plot SNR", variable=plot_snr).pack(
         side="left", padx=5, pady=2
     )
+    plot_mode = StringVar(value="individual")
+    plot_mode_frame = ttk.Frame(main_frame)
+    plot_mode_frame.grid(row=6, column=0, sticky="ew", padx=5, pady=(0, 5))
+    ttk.Label(plot_mode_frame, text="Plot output:", style="Caption.TLabel").pack(side="left", padx=(0, 8))
+    ttk.Radiobutton(
+        plot_mode_frame,
+        text="one set per file",
+        variable=plot_mode,
+        value="individual",
+    ).pack(side="left", padx=5)
+    ttk.Radiobutton(
+        plot_mode_frame,
+        text="one combined set for all files",
+        variable=plot_mode,
+        value="combined",
+    ).pack(side="left", padx=5)
 
     # Button bar uses ``pack`` inside its own frame; mixing layout managers
     # within one container is problematic, but separate frames may use
     # different managers safely.
     btn_frame = ttk.Frame(main_frame)
-    btn_frame.grid(row=6, column=0, sticky="ew", padx=5, pady=5)
+    btn_frame.grid(row=7, column=0, sticky="ew", padx=5, pady=5)
 
     # --- Lower pane: log output -----------------------------------------
     log_frame = ttk.Frame(paned)
@@ -196,6 +212,8 @@ def main():
         saved = []
         stats_rows = []
         plot_rows = []
+        plot_series_rows = []
+        make_individual_plots = plot_mode.get() == "individual"
         for i in range(listbox.size()):
             folder = Path(listbox.get(i))
             html_files = sorted(folder.glob("*.html"))
@@ -211,6 +229,8 @@ def main():
                         stats_rows=stats_rows,
                         plot_selectors=selected_plots,
                         plot_rows=plot_rows,
+                        plot_series_rows=plot_series_rows,
+                        generate_individual_plots=make_individual_plots,
                     )
                     logging.info("Saved: %s", out)
                     saved.append(out)
@@ -227,6 +247,10 @@ def main():
             logging.info("Saved statistics: %s", stats_path)
 
         if selected_plots:
+            if not make_individual_plots:
+                plot_rows.extend(
+                    generate_combined_polar_plot_artifacts(output_dir["path"], plot_series_rows, selected_plots)
+                )
             plot_index = output_dir["path"] / "polar_plots_index.xlsx"
             if plot_rows:
                 pd.DataFrame(plot_rows).to_excel(plot_index, index=False)

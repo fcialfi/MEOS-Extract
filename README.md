@@ -32,10 +32,13 @@ Un'interfaccia Tkinter è disponibile per elaborare più cartelle.
 4. (Opzionale) Abilitare le opzioni nel riquadro **Statistics**:
    - `demodulator_lock_state`: conta gli eventi di unlock interni al pass (pattern stabile `1→0→1`).
    - `Polar plot Input Level`, `Polar plot Eb/No`, `Polar plot SNR`: genera grafici polari a colori rispetto ad azimuth/elevation.
-5. Premere **Run** per generare gli Excel; ogni file salvato verrà segnalato.
-6. Se è abilitata la statistica lock, viene creato `lock_state_stats.xlsx` (solo colonne `Orbit Number` e `Unlocks`).
-7. Se sono abilitati i plot, vengono creati PNG polari **e 3D sferici (cupola del cielo con antenna al centro)** e un indice `polar_plots_index.xlsx`.
-8. La GUI richiede `tkinter`. Se non è già presente, installarlo come indicato nella sezione *Dipendenze*.
+5. Scegliere la modalità dei plot:
+   - `one set per file`: genera i PNG per ogni report elaborato.
+   - `one combined set for all files`: genera un solo plot per parametro selezionato, aggregando i dati di tutti i report elaborati.
+6. Premere **Run** per generare gli Excel; ogni file salvato verrà segnalato.
+7. Se è abilitata la statistica lock, viene creato `lock_state_stats.xlsx` (solo colonne `Orbit Number` e `Unlocks`).
+8. Se sono abilitati i plot, vengono creati PNG polari **e 3D sferici (cupola del cielo con antenna al centro)** e un indice `polar_plots_index.xlsx`.
+9. La GUI richiede `tkinter`. Se non è già presente, installarlo come indicato nella sezione *Dipendenze*.
 
 I log dell'applicazione sono salvati nel file `gui_app.log` nella stessa directory dello script. Se il file non è scrivibile, i messaggi vengono mostrati solo in console.
 

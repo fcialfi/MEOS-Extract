@@ -937,11 +937,11 @@ def _build_base_track(az: pd.DataFrame, el: pd.DataFrame, n_points: int = 500):
     return az_interp, el_interp
 
 
-def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selectors):
-    """Generate polar color plots (metric over azimuth/elevation)."""
+def collect_polar_plot_series(section_frames: dict, selectors, source_label=None):
+    """Collect aligned metric/azimuth/elevation samples for later plot generation."""
     wanted = {s.lower() for s in (selectors or [])}
     if not wanted:
-        return []
+        return {}
 
     az_col, az_df = _find_section_by_predicate(section_frames, _is_azimuth_label)
     el_col, el_df = _find_section_by_predicate(section_frames, _is_elevation_label)
@@ -952,15 +952,7 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
             "Polar plots skipped: azimuth/elevation charts not found. Available sections: %s",
             ", ".join(section_frames.keys()),
         )
-        return []
-
-    try:
-        import matplotlib.pyplot as plt
-    except ImportError:
-        logger.warning("matplotlib not available: skipping polar plot generation")
-        return []
-
-    artifacts = []
+        return {}
 
     az = az_df[["t_sec_rel", az_col]].copy()
     el = el_df[["t_sec_rel", el_col]].copy()
@@ -972,7 +964,12 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
     el = el.dropna().sort_values("t_sec_rel")
     if az.empty or el.empty:
         logger.warning("Polar plots skipped: azimuth/elevation numeric samples are empty")
-        return []
+        return {}
+
+    az_tmp = az[["t_sec_rel", az_col]].rename(columns={az_col: "azimuth"})
+    el_tmp = el[["t_sec_rel", el_col]].rename(columns={el_col: "elevation"})
+    track_az, track_el = _build_base_track(az_tmp, el_tmp)
+    collected = {}
 
     for selector in ("input_level", "eb_no", "snr"):
         if selector not in wanted:
@@ -989,8 +986,6 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
             continue
         metric = metric.rename(columns={metric_col: "metric"})
 
-        az_tmp = az[["t_sec_rel", az_col]].rename(columns={az_col: "azimuth"})
-        el_tmp = el[["t_sec_rel", el_col]].rename(columns={el_col: "elevation"})
         aligned = _align_metric_with_az_el(metric, az_tmp, el_tmp)
         if aligned.empty:
             logger.warning(
@@ -1009,10 +1004,58 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
             logger.warning("Polar/3D plot '%s' skipped: insufficient valid angle samples", metric_col)
             continue
 
-        # 2D polar styled like sky-map reference view.
+        collected[selector] = {
+            "selector": selector,
+            "metric_col": metric_col,
+            "azimuth": az_vals,
+            "elevation": el_vals,
+            "metric": metric_vals,
+            "track_az": track_az,
+            "track_el": track_el,
+            "source_label": source_label or "combined",
+        }
+
+    if wanted and not collected:
+        logger.warning(
+            "Polar plots requested but no matching metric sections found. Requested=%s; available=%s",
+            sorted(wanted),
+            ", ".join(section_frames.keys()),
+        )
+
+    return collected
+
+
+def _build_plot_artifacts(out_dir: Path, stem: str, series_map: dict, include_source=False):
+    """Render polar/3D plot artifacts from pre-aligned series."""
+    if not series_map:
+        return []
+
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        logger.warning("matplotlib not available: skipping polar plot generation")
+        return []
+
+    artifacts = []
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    for selector in ("input_level", "eb_no", "snr"):
+        series = series_map.get(selector)
+        if not series:
+            continue
+
+        metric_col = series["metric_col"]
+        az_vals = np.asarray(series["azimuth"], dtype=float)
+        el_vals = np.asarray(series["elevation"], dtype=float)
+        metric_vals = np.asarray(series["metric"], dtype=float)
+        track_az = np.asarray(series.get("track_az", []), dtype=float)
+        track_el = np.asarray(series.get("track_el", []), dtype=float)
+        source_label = series.get("source_label", "combined")
+        title_suffix = f" ({source_label})" if include_source else ""
+
         theta = np.deg2rad(az_vals)
         radius_norm = 1.0 - (el_vals / 90.0)
-        track_az, track_el = _build_base_track(az_tmp, el_tmp)
         track_theta = np.deg2rad(track_az) if len(track_az) else np.array([])
         track_radius = 1.0 - (track_el / 90.0) if len(track_el) else np.array([])
 
@@ -1029,23 +1072,20 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
         ax_p.set_yticklabels(["0", "0.5", "1"])
         ax_p.set_rlabel_position(18)
         ax_p.grid(alpha=0.35)
-        ax_p.set_title(f"{metric_col} on antenna track")
+        ax_p.set_title(f"{metric_col} on antenna track{title_suffix}")
         cbar_p = fig_p.colorbar(sc_p, ax=ax_p, pad=0.10)
         cbar_p.set_label("SNR (dB)" if "snr" in metric_col.lower() or "noise" in metric_col.lower() else metric_col)
-        polar_name = f"{out_path.stem}_{metric_col}_polar.png"
-        polar_path = out_path.with_name(polar_name)
+        polar_path = out_dir / f"{stem}_{metric_col}_polar.png"
         fig_p.savefig(polar_path, dpi=150, bbox_inches="tight")
         plt.close(fig_p)
-        artifacts.append({"plot": metric_col, "kind": "polar", "path": str(polar_path)})
+        artifacts.append({"plot": metric_col, "kind": "polar", "path": str(polar_path), "source": source_label})
 
-        # 3D spherical sky-view: antenna at center + hemisphere surface.
         x, y, z = _spherical_to_cartesian(az_vals, el_vals)
         tx, ty, tz = _spherical_to_cartesian(track_az, track_el) if len(track_az) else (np.array([]), np.array([]), np.array([]))
 
         fig3d = plt.figure(figsize=(9, 7))
         ax3d = fig3d.add_subplot(111, projection="3d")
 
-        # hemisphere wireframe (z >= 0): antenna sky dome
         az_grid = np.linspace(0, 2 * np.pi, 72)
         el_grid = np.linspace(0, np.pi / 2, 28)
         AZ, EL = np.meshgrid(az_grid, el_grid)
@@ -1054,22 +1094,17 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
         Zs = np.sin(EL)
         ax3d.plot_wireframe(Xs, Ys, Zs, rstride=3, cstride=6, color="lightgray", linewidth=0.5, alpha=0.45)
 
-        # reference horizon circle
         hz = np.linspace(0, 2 * np.pi, 240)
         ax3d.plot(np.cos(hz), np.sin(hz), np.zeros_like(hz), color="gray", linewidth=1.0, alpha=0.8)
 
-        # track and colored metric samples on sphere
         if len(tx):
             ax3d.plot(tx, ty, tz, color="black", alpha=0.75, linewidth=1.4)
         sc3d = ax3d.scatter(x, y, z, c=metric_vals, cmap="turbo", s=24, depthshade=False)
-
-        # antenna center marker
         ax3d.scatter([0.0], [0.0], [0.0], c="black", s=42)
         ax3d.text(0.02, 0.02, 0.02, "Antenna", fontsize=8)
-
         ax3d.scatter([x[0]], [y[0]], [z[0]], c="white", edgecolors="black", s=60)
         ax3d.scatter([x[-1]], [y[-1]], [z[-1]], c="black", s=50)
-        ax3d.set_title(f"{metric_col} 3D spherical sky-view")
+        ax3d.set_title(f"{metric_col} 3D spherical sky-view{title_suffix}")
         ax3d.set_xlabel("X")
         ax3d.set_ylabel("Y")
         ax3d.set_zlabel("Z")
@@ -1081,20 +1116,47 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
         cbar3d = fig3d.colorbar(sc3d, ax=ax3d, pad=0.08)
         cbar3d.set_label(metric_col)
 
-        png3d_name = f"{out_path.stem}_{metric_col}_3d.png"
-        png3d_path = out_path.with_name(png3d_name)
+        png3d_path = out_dir / f"{stem}_{metric_col}_3d.png"
         fig3d.savefig(png3d_path, dpi=150, bbox_inches="tight")
         plt.close(fig3d)
-        artifacts.append({"plot": metric_col, "kind": "3d", "path": str(png3d_path)})
-
-    if wanted and not artifacts:
-        logger.warning(
-            "Polar plots requested but no matching metric sections found. Requested=%s; available=%s",
-            sorted(wanted),
-            ", ".join(section_frames.keys()),
-        )
+        artifacts.append({"plot": metric_col, "kind": "3d", "path": str(png3d_path), "source": source_label})
 
     return artifacts
+
+
+def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selectors, source_label=None):
+    """Generate polar color plots (metric over azimuth/elevation) for a single file."""
+    series_map = collect_polar_plot_series(section_frames, selectors, source_label=source_label or out_path.stem)
+    return _build_plot_artifacts(out_path.parent, out_path.stem, series_map, include_source=False)
+
+
+def generate_combined_polar_plot_artifacts(output_dir: Path, plot_series_rows: list, selectors):
+    """Generate one combined plot per selected parameter across all processed files."""
+    wanted = {s.lower() for s in (selectors or [])}
+    if not wanted or not plot_series_rows:
+        return []
+
+    combined = {}
+    for selector in ("input_level", "eb_no", "snr"):
+        if selector not in wanted:
+            continue
+        rows = [row for row in plot_series_rows if row.get("selector") == selector]
+        if not rows:
+            continue
+        track_az_parts = [np.asarray(row["track_az"], dtype=float) for row in rows if len(row.get("track_az", []))]
+        track_el_parts = [np.asarray(row["track_el"], dtype=float) for row in rows if len(row.get("track_el", []))]
+        combined[selector] = {
+            "selector": selector,
+            "metric_col": rows[0]["metric_col"],
+            "azimuth": np.concatenate([np.asarray(row["azimuth"], dtype=float) for row in rows]),
+            "elevation": np.concatenate([np.asarray(row["elevation"], dtype=float) for row in rows]),
+            "metric": np.concatenate([np.asarray(row["metric"], dtype=float) for row in rows]),
+            "track_az": np.concatenate(track_az_parts) if track_az_parts else np.array([]),
+            "track_el": np.concatenate(track_el_parts) if track_el_parts else np.array([]),
+            "source_label": "all files",
+        }
+
+    return _build_plot_artifacts(output_dir, "combined", combined, include_source=True)
 
 
 def _numeric_tick_groups(ticks: pd.DataFrame):
@@ -1316,6 +1378,8 @@ def process_html(
     stats_rows=None,
     plot_selectors=None,
     plot_rows=None,
+    plot_series_rows=None,
+    generate_individual_plots=True,
 ) -> Path:
     """Elabora un report HTML e salva i grafici in un file Excel.
 
@@ -1458,8 +1522,13 @@ def process_html(
     if stats_rows is not None:
         stats_rows.extend(summarize_selected_stats(orbit_no, section_frames, stats_selectors))
 
-    if plot_rows is not None:
-        plot_rows.extend(generate_polar_plot_artifacts(out_path, section_frames, plot_selectors))
+    if plot_series_rows is not None:
+        plot_series_rows.extend(
+            collect_polar_plot_series(section_frames, plot_selectors, source_label=out_path.stem).values()
+        )
+
+    if plot_rows is not None and generate_individual_plots:
+        plot_rows.extend(generate_polar_plot_artifacts(out_path, section_frames, plot_selectors, source_label=out_path.stem))
 
     return out_path
 
