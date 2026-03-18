@@ -914,20 +914,6 @@ def _spherical_to_cartesian(az_deg, el_deg):
     return x, y, z
 
 
-def _continuous_azimuth_degrees(az_deg):
-    """Return azimuth degrees unwrapped across the 0°/360° boundary."""
-    az = np.asarray(az_deg, dtype=float)
-    if az.size == 0:
-        return az
-    return np.rad2deg(np.unwrap(np.deg2rad(az)))
-
-
-def _polar_display_azimuth(az_deg):
-    """Keep azimuth <= 270° unchanged and fold only the >270° tail toward 45°."""
-    az = np.asarray(az_deg, dtype=float)
-    wrapped = np.mod(az, 360.0)
-    return np.where(wrapped > 270.0, 360.0 - wrapped, wrapped)
-
 
 def _build_base_track(az: pd.DataFrame, el: pd.DataFrame, n_points: int = 500):
     """Build a smooth antenna base track from azimuth/elevation time series."""
@@ -1010,12 +996,11 @@ def collect_polar_plot_series(section_frames: dict, selectors, source_label=None
             continue
 
         az_vals = np.mod(aligned["azimuth"].to_numpy(dtype=float), 360.0)
-        az_plot = _continuous_azimuth_degrees(az_vals)
         el_vals = aligned["elevation"].to_numpy(dtype=float)
         metric_vals = aligned["metric"].to_numpy(dtype=float)
-        valid = np.isfinite(az_vals) & np.isfinite(az_plot) & np.isfinite(el_vals) & np.isfinite(metric_vals)
+        valid = np.isfinite(az_vals) & np.isfinite(el_vals) & np.isfinite(metric_vals)
         valid &= (el_vals >= 0.0) & (el_vals <= 90.0)
-        az_vals, az_plot, el_vals, metric_vals = az_vals[valid], az_plot[valid], el_vals[valid], metric_vals[valid]
+        az_vals, el_vals, metric_vals = az_vals[valid], el_vals[valid], metric_vals[valid]
         if len(az_vals) < 3:
             logger.warning("Polar/3D plot '%s' skipped: insufficient valid angle samples", metric_col)
             continue
@@ -1024,11 +1009,9 @@ def collect_polar_plot_series(section_frames: dict, selectors, source_label=None
             "selector": selector,
             "metric_col": metric_col,
             "azimuth": az_vals,
-            "azimuth_plot": az_plot,
             "elevation": el_vals,
             "metric": metric_vals,
             "track_az": np.mod(track_az, 360.0),
-            "track_az_plot": track_az,
             "track_el": track_el,
             "source_label": source_label or "combined",
         }
@@ -1065,18 +1048,16 @@ def _build_plot_artifacts(out_dir: Path, stem: str, series_map: dict, include_so
 
         metric_col = series["metric_col"]
         az_vals = np.asarray(series["azimuth"], dtype=float)
-        az_plot = np.asarray(series.get("azimuth_plot", az_vals), dtype=float)
         el_vals = np.asarray(series["elevation"], dtype=float)
         metric_vals = np.asarray(series["metric"], dtype=float)
         track_az = np.asarray(series.get("track_az", []), dtype=float)
-        track_az_plot = np.asarray(series.get("track_az_plot", track_az), dtype=float)
         track_el = np.asarray(series.get("track_el", []), dtype=float)
         source_label = series.get("source_label", "combined")
         title_suffix = f" ({source_label})" if include_source else ""
 
-        theta = np.deg2rad(_polar_display_azimuth(az_plot))
+        theta = np.deg2rad(np.mod(az_vals, 360.0))
         radius_norm = 1.0 - (el_vals / 90.0)
-        track_theta = np.deg2rad(_polar_display_azimuth(track_az_plot)) if len(track_az_plot) else np.array([])
+        track_theta = np.deg2rad(np.mod(track_az, 360.0)) if len(track_az) else np.array([])
         track_radius = 1.0 - (track_el / 90.0) if len(track_el) else np.array([])
 
         fig_p, ax_p = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(8, 6))
@@ -1100,10 +1081,8 @@ def _build_plot_artifacts(out_dir: Path, stem: str, series_map: dict, include_so
         plt.close(fig_p)
         artifacts.append({"plot": metric_col, "kind": "polar", "path": str(polar_path), "source": source_label})
 
-        az_display = _polar_display_azimuth(az_vals)
-        track_az_display = _polar_display_azimuth(track_az) if len(track_az) else np.array([])
-        x, y, z = _spherical_to_cartesian(az_display, el_vals)
-        tx, ty, tz = _spherical_to_cartesian(track_az_display, track_el) if len(track_az_display) else (np.array([]), np.array([]), np.array([]))
+        x, y, z = _spherical_to_cartesian(az_vals, el_vals)
+        tx, ty, tz = _spherical_to_cartesian(track_az, track_el) if len(track_az) else (np.array([]), np.array([]), np.array([]))
 
         fig3d = plt.figure(figsize=(9, 7))
         ax3d = fig3d.add_subplot(111, projection="3d")
@@ -1171,13 +1150,9 @@ def generate_combined_polar_plot_artifacts(output_dir: Path, plot_series_rows: l
             "selector": selector,
             "metric_col": rows[0]["metric_col"],
             "azimuth": np.concatenate([np.asarray(row["azimuth"], dtype=float) for row in rows]),
-            "azimuth_plot": np.concatenate([np.asarray(row.get("azimuth_plot", row["azimuth"]), dtype=float) for row in rows]),
             "elevation": np.concatenate([np.asarray(row["elevation"], dtype=float) for row in rows]),
             "metric": np.concatenate([np.asarray(row["metric"], dtype=float) for row in rows]),
             "track_az": np.concatenate(track_az_parts) if track_az_parts else np.array([]),
-            "track_az_plot": np.concatenate(
-                [np.asarray(row.get("track_az_plot", row.get("track_az", [])), dtype=float) for row in rows if len(row.get("track_az_plot", row.get("track_az", [])))]
-            ) if rows else np.array([]),
             "track_el": np.concatenate(track_el_parts) if track_el_parts else np.array([]),
             "source_label": "all files",
         }
