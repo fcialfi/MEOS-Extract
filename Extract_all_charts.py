@@ -915,6 +915,27 @@ def _spherical_to_cartesian(az_deg, el_deg):
 
 
 
+
+
+def _split_azimuth_wrapped_segments(az_deg, el_deg, jump_threshold=180.0):
+    """Split a track whenever wrapped azimuth jumps across the 0/360 boundary."""
+    az = np.asarray(az_deg, dtype=float)
+    el = np.asarray(el_deg, dtype=float)
+    if len(az) != len(el) or len(az) == 0:
+        return []
+
+    wrapped = np.mod(az, 360.0)
+    split_points = np.where(np.abs(np.diff(wrapped)) > float(jump_threshold))[0] + 1
+    chunks = []
+    start = 0
+    for stop in split_points:
+        if stop - start >= 2:
+            chunks.append((wrapped[start:stop], el[start:stop]))
+        start = stop
+    if len(wrapped) - start >= 2:
+        chunks.append((wrapped[start:], el[start:]))
+    return chunks
+
 def _build_base_track(az: pd.DataFrame, el: pd.DataFrame, n_points: int = 500):
     """Build a smooth antenna base track from azimuth/elevation time series."""
     t0 = max(float(az["t_sec_rel"].min()), float(el["t_sec_rel"].min()))
@@ -1062,17 +1083,15 @@ def _build_plot_artifacts(out_dir: Path, stem: str, series_map: dict, include_so
         fig_p, ax_p = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(8, 6))
         if track_segments:
             for seg_az, seg_el in track_segments:
-                seg_az = np.asarray(seg_az, dtype=float)
-                seg_el = np.asarray(seg_el, dtype=float)
-                if len(seg_az) < 2 or len(seg_el) < 2:
-                    continue
-                seg_theta = np.deg2rad(np.mod(seg_az, 360.0))
-                seg_radius = 1.0 - (seg_el / 90.0)
-                ax_p.plot(seg_theta, seg_radius, color="black", linewidth=1.6, alpha=0.95, zorder=1)
+                for chunk_az, chunk_el in _split_azimuth_wrapped_segments(seg_az, seg_el):
+                    seg_theta = np.deg2rad(chunk_az)
+                    seg_radius = 1.0 - (chunk_el / 90.0)
+                    ax_p.plot(seg_theta, seg_radius, color="black", linewidth=1.6, alpha=0.95, zorder=1)
         elif len(track_az) and len(track_el):
-            track_theta = np.deg2rad(np.mod(track_az, 360.0))
-            track_radius = 1.0 - (track_el / 90.0)
-            ax_p.plot(track_theta, track_radius, color="black", linewidth=1.6, alpha=0.95, zorder=1)
+            for chunk_az, chunk_el in _split_azimuth_wrapped_segments(track_az, track_el):
+                track_theta = np.deg2rad(chunk_az)
+                track_radius = 1.0 - (chunk_el / 90.0)
+                ax_p.plot(track_theta, track_radius, color="black", linewidth=1.6, alpha=0.95, zorder=1)
         sc_p = ax_p.scatter(theta, radius_norm, c=metric_vals, cmap="jet", s=34, zorder=3, edgecolors="none")
         ax_p.scatter(theta[:1], radius_norm[:1], c="#00AA88", marker="^", s=72, zorder=4)
         ax_p.scatter(theta[-1:], radius_norm[-1:], c="#66CCFF", marker="D", s=70, zorder=4)
@@ -1109,15 +1128,13 @@ def _build_plot_artifacts(out_dir: Path, stem: str, series_map: dict, include_so
 
         if track_segments:
             for seg_az, seg_el in track_segments:
-                seg_az = np.asarray(seg_az, dtype=float)
-                seg_el = np.asarray(seg_el, dtype=float)
-                if len(seg_az) < 2 or len(seg_el) < 2:
-                    continue
-                tx, ty, tz = _spherical_to_cartesian(seg_az, seg_el)
-                ax3d.plot(tx, ty, tz, color="black", alpha=0.75, linewidth=1.4)
+                for chunk_az, chunk_el in _split_azimuth_wrapped_segments(seg_az, seg_el):
+                    tx, ty, tz = _spherical_to_cartesian(chunk_az, chunk_el)
+                    ax3d.plot(tx, ty, tz, color="black", alpha=0.75, linewidth=1.4)
         elif len(track_az) and len(track_el):
-            tx, ty, tz = _spherical_to_cartesian(track_az, track_el)
-            ax3d.plot(tx, ty, tz, color="black", alpha=0.75, linewidth=1.4)
+            for chunk_az, chunk_el in _split_azimuth_wrapped_segments(track_az, track_el):
+                tx, ty, tz = _spherical_to_cartesian(chunk_az, chunk_el)
+                ax3d.plot(tx, ty, tz, color="black", alpha=0.75, linewidth=1.4)
         sc3d = ax3d.scatter(x, y, z, c=metric_vals, cmap="turbo", s=24, depthshade=False)
         ax3d.scatter([0.0], [0.0], [0.0], c="black", s=42)
         ax3d.text(0.02, 0.02, 0.02, "Antenna", fontsize=8)
