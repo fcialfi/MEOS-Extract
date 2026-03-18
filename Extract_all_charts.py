@@ -1067,9 +1067,9 @@ def _build_plot_artifacts(out_dir: Path, stem: str, series_map: dict, include_so
         source_label = series.get("source_label", "combined")
         title_suffix = f" ({source_label})" if include_source else ""
 
-        theta = np.deg2rad(az_plot)
+        theta = np.deg2rad(-az_plot)
         radius_norm = 1.0 - (el_vals / 90.0)
-        track_theta = np.deg2rad(track_az_plot) if len(track_az_plot) else np.array([])
+        track_theta = np.deg2rad(-track_az_plot) if len(track_az_plot) else np.array([])
         track_radius = 1.0 - (track_el / 90.0) if len(track_el) else np.array([])
 
         fig_p, ax_p = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(8, 6))
