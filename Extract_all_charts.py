@@ -922,6 +922,12 @@ def _continuous_azimuth_degrees(az_deg):
     return np.rad2deg(np.unwrap(np.deg2rad(az)))
 
 
+def _polar_display_azimuth(az_deg):
+    """Mirror azimuth around the 0°/180° axis for the 2D polar display."""
+    az = np.asarray(az_deg, dtype=float)
+    return np.mod(360.0 - az, 360.0)
+
+
 def _build_base_track(az: pd.DataFrame, el: pd.DataFrame, n_points: int = 500):
     """Build a smooth antenna base track from azimuth/elevation time series."""
     t0 = max(float(az["t_sec_rel"].min()), float(el["t_sec_rel"].min()))
@@ -1067,9 +1073,9 @@ def _build_plot_artifacts(out_dir: Path, stem: str, series_map: dict, include_so
         source_label = series.get("source_label", "combined")
         title_suffix = f" ({source_label})" if include_source else ""
 
-        theta = np.deg2rad(-az_plot)
+        theta = np.deg2rad(_polar_display_azimuth(az_plot))
         radius_norm = 1.0 - (el_vals / 90.0)
-        track_theta = np.deg2rad(-track_az_plot) if len(track_az_plot) else np.array([])
+        track_theta = np.deg2rad(_polar_display_azimuth(track_az_plot)) if len(track_az_plot) else np.array([])
         track_radius = 1.0 - (track_el / 90.0) if len(track_el) else np.array([])
 
         fig_p, ax_p = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(8, 6))
@@ -1093,8 +1099,10 @@ def _build_plot_artifacts(out_dir: Path, stem: str, series_map: dict, include_so
         plt.close(fig_p)
         artifacts.append({"plot": metric_col, "kind": "polar", "path": str(polar_path), "source": source_label})
 
-        x, y, z = _spherical_to_cartesian(az_vals, el_vals)
-        tx, ty, tz = _spherical_to_cartesian(track_az, track_el) if len(track_az) else (np.array([]), np.array([]), np.array([]))
+        az_display = _polar_display_azimuth(az_vals)
+        track_az_display = _polar_display_azimuth(track_az) if len(track_az) else np.array([])
+        x, y, z = _spherical_to_cartesian(az_display, el_vals)
+        tx, ty, tz = _spherical_to_cartesian(track_az_display, track_el) if len(track_az_display) else (np.array([]), np.array([]), np.array([]))
 
         fig3d = plt.figure(figsize=(9, 7))
         ax3d = fig3d.add_subplot(111, projection="3d")
