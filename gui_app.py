@@ -11,11 +11,12 @@ on the console and inside the GUI.
 """
 
 from pathlib import Path
-from tkinter import Tk, Listbox, filedialog, StringVar, Text, PanedWindow, messagebox
+from tkinter import Tk, Listbox, filedialog, StringVar, Text, PanedWindow, BooleanVar
 from tkinter import ttk
 import logging
 
-from Extract_all_charts import process_html
+from Extract_all_charts import process_html, generate_combined_polar_plot_artifacts
+import pandas as pd
 
 
 LOG_PATH = Path(__file__).resolve().with_name("gui_app.log")
@@ -68,7 +69,7 @@ def main():
     main_frame = ttk.Frame(paned)
     paned.add(main_frame, minsize=120)
     main_frame.grid_columnconfigure(0, weight=1)
-    for r in range(3):
+    for r in range(4):
         # a non-zero ``minsize`` keeps rows visible when the window shrinks
         main_frame.grid_rowconfigure(r, weight=1, minsize=30)
     main_frame.grid_rowconfigure(3, weight=3)
@@ -99,11 +100,49 @@ def main():
     lbl_count = ttk.Label(main_frame)
     lbl_count.grid(row=4, column=0, sticky="ew", padx=5, pady=5)
 
+    stats_frame = ttk.LabelFrame(main_frame, text="Statistics")
+    stats_frame.grid(row=5, column=0, sticky="ew", padx=5, pady=(0, 5))
+    stat_demod_unlock = BooleanVar(value=False)
+    ttk.Checkbutton(
+        stats_frame,
+        text="demodulator_lock_state: count unlock events (1→0→1)",
+        variable=stat_demod_unlock,
+    ).pack(side="left", padx=5, pady=2)
+
+    plot_input_level = BooleanVar(value=False)
+    plot_eb_no = BooleanVar(value=False)
+    plot_snr = BooleanVar(value=False)
+    ttk.Checkbutton(stats_frame, text="Polar plot Input Level", variable=plot_input_level).pack(
+        side="left", padx=5, pady=2
+    )
+    ttk.Checkbutton(stats_frame, text="Polar plot Eb/No", variable=plot_eb_no).pack(
+        side="left", padx=5, pady=2
+    )
+    ttk.Checkbutton(stats_frame, text="Polar plot SNR", variable=plot_snr).pack(
+        side="left", padx=5, pady=2
+    )
+    plot_mode = StringVar(value="individual")
+    plot_mode_frame = ttk.Frame(main_frame)
+    plot_mode_frame.grid(row=6, column=0, sticky="ew", padx=5, pady=(0, 5))
+    ttk.Label(plot_mode_frame, text="Plot output:", style="Caption.TLabel").pack(side="left", padx=(0, 8))
+    ttk.Radiobutton(
+        plot_mode_frame,
+        text="one set per file",
+        variable=plot_mode,
+        value="individual",
+    ).pack(side="left", padx=5)
+    ttk.Radiobutton(
+        plot_mode_frame,
+        text="one combined set for all files",
+        variable=plot_mode,
+        value="combined",
+    ).pack(side="left", padx=5)
+
     # Button bar uses ``pack`` inside its own frame; mixing layout managers
     # within one container is problematic, but separate frames may use
     # different managers safely.
     btn_frame = ttk.Frame(main_frame)
-    btn_frame.grid(row=5, column=0, sticky="ew", padx=5, pady=5)
+    btn_frame.grid(row=7, column=0, sticky="ew", padx=5, pady=5)
 
     # --- Lower pane: log output -----------------------------------------
     log_frame = ttk.Frame(paned)
@@ -157,7 +196,24 @@ def main():
         if output_dir["path"] is None:
             logging.warning("Output directory not selected")
             return
+
+        selected_stats = []
+        if stat_demod_unlock.get():
+            selected_stats.append("demodulator_lock_state")
+
+        selected_plots = []
+        if plot_input_level.get():
+            selected_plots.append("input_level")
+        if plot_eb_no.get():
+            selected_plots.append("eb_no")
+        if plot_snr.get():
+            selected_plots.append("snr")
+
         saved = []
+        stats_rows = []
+        plot_rows = []
+        plot_series_rows = []
+        make_individual_plots = plot_mode.get() == "individual"
         for i in range(listbox.size()):
             folder = Path(listbox.get(i))
             html_files = sorted(folder.glob("*.html"))
@@ -166,12 +222,42 @@ def main():
                 continue
             for report in html_files:
                 try:
-                    out = process_html(report, output_dir["path"])
+                    out = process_html(
+                        report,
+                        output_dir["path"],
+                        stats_selectors=selected_stats,
+                        stats_rows=stats_rows,
+                        plot_selectors=selected_plots,
+                        plot_rows=plot_rows,
+                        plot_series_rows=plot_series_rows,
+                        generate_individual_plots=make_individual_plots,
+                    )
                     logging.info("Saved: %s", out)
                     saved.append(out)
                 except Exception:
                     logging.exception("Error processing %s", report)
                     return
+
+        if selected_stats:
+            stats_path = output_dir["path"] / "lock_state_stats.xlsx"
+            if stats_rows:
+                pd.DataFrame(stats_rows, columns=["Orbit Number", "Unlocks"]).to_excel(stats_path, index=False)
+            else:
+                pd.DataFrame([{"Orbit Number": "N/A", "Unlocks": 0}]).to_excel(stats_path, index=False)
+            logging.info("Saved statistics: %s", stats_path)
+
+        if selected_plots:
+            if not make_individual_plots:
+                plot_rows.extend(
+                    generate_combined_polar_plot_artifacts(output_dir["path"], plot_series_rows, selected_plots)
+                )
+            plot_index = output_dir["path"] / "polar_plots_index.xlsx"
+            if plot_rows:
+                pd.DataFrame(plot_rows).to_excel(plot_index, index=False)
+                logging.info("Saved polar plot index: %s", plot_index)
+            else:
+                logging.warning("Polar plots requested, but none were generated. Check detailed warnings in log for matching/metric diagnostics.")
+
         logging.info("Completed: created %d files", len(saved))
 
     btn_add = ttk.Button(btn_frame, text="Add folder", command=add_folder)
