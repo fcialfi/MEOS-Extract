@@ -1306,7 +1306,7 @@ def _regularize_antenna_series(df: pd.DataFrame, az_col: str, el_col: str):
 def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
     """Build a single antenna dataframe with azimuth and elevation columns."""
     mapped = []
-    for idx, (_series_name, raw_df, ticks) in enumerate(curves, start=1):
+    for idx, (series_name, raw_df, ticks) in enumerate(curves, start=1):
         base_curve = _sanitize_curve_timebase(raw_df.copy())
         base = map_x_to_time(base_curve, start_dt, stop_dt)
         if base.empty:
@@ -1331,14 +1331,14 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
             vals = pd.to_numeric(cand_df[cand_col], errors="coerce")
             if vals.dropna().empty:
                 continue
-            mapped.append((idx, cand_df, vals, cand_col))
+            mapped.append((idx, series_name, cand_df, vals, cand_col))
 
     if len(mapped) < 2:
         return None
 
     # choose azimuth/elevation with value-domain aware scoring.
     scored = []
-    for idx, df, vals, val_col in mapped:
+    for idx, series_name, df, vals, val_col in mapped:
         tmp = df[["t_sec_rel", val_col]].copy()
         tmp = tmp.dropna().sort_values("t_sec_rel")
         if len(tmp) < 8:
@@ -1364,26 +1364,49 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
 
         frac_az = float(np.mean((v >= -5) & (v <= 365)))
         frac_el = float(np.mean((v >= -2) & (v <= 92)))
+        name = (series_name or "").lower()
+        name_has_az = ("az" in name) or ("azimuth" in name)
+        name_has_el = ("el" in name) or ("elev" in name)
 
-        az_score = 2.0 * frac_az + 1.8 * mono_score + (1.2 if vmax > 120 else 0.0) + 0.001 * vrng
-        el_score = 2.0 * frac_el + 1.7 * bell_score + (1.0 if 5 <= vmax <= 95 else -0.8) - 0.001 * max(0.0, vrng - 90.0)
+        az_score = (
+            2.0 * frac_az
+            + 1.8 * mono_score
+            + (1.2 if vmax > 120 else 0.0)
+            + 0.001 * vrng
+            + (4.0 if name_has_az else 0.0)
+            - (1.5 if name_has_el else 0.0)
+        )
+        el_score = (
+            2.0 * frac_el
+            + 1.7 * bell_score
+            + (1.0 if 5 <= vmax <= 95 else -0.8)
+            - 0.001 * max(0.0, vrng - 90.0)
+            + (4.0 if name_has_el else 0.0)
+            - (1.5 if name_has_az else 0.0)
+            + (0.8 if vmax <= 60 else 0.0)
+        )
 
-        scored.append((idx, df, val_col, az_score, el_score, vmin, vmax, vrng, mono_score, bell_score))
+        scored.append((idx, series_name, df, val_col, az_score, el_score, vmin, vmax, vrng, mono_score, bell_score))
 
     if len(scored) < 2:
         return None
 
-    az_item = max(scored, key=lambda t: t[3])
-    el_candidates = [t for t in scored if t[0] != az_item[0]]
+    az_named = [t for t in scored if ("az" in (t[1] or "").lower()) or ("azimuth" in (t[1] or "").lower())]
+    el_named = [t for t in scored if ("el" in (t[1] or "").lower()) or ("elev" in (t[1] or "").lower())]
+
+    az_pool = az_named if az_named else scored
+    az_item = max(az_pool, key=lambda t: t[4])
+    el_pool = el_named if el_named else scored
+    el_candidates = [t for t in el_pool if t[0] != az_item[0]]
     if not el_candidates:
         # fallback to different mapping candidate from same raw curve
-        el_candidates = [t for t in scored if t[2] != az_item[2]]
+        el_candidates = [t for t in el_pool if t[3] != az_item[3]]
         if not el_candidates:
             return None
-    el_item = max(el_candidates, key=lambda t: t[4])
+    el_item = max(el_candidates, key=lambda t: t[5])
 
-    az_idx, az_df, az_col = az_item[0], az_item[1], az_item[2]
-    el_idx, el_df, el_col = el_item[0], el_item[1], el_item[2]
+    az_idx, az_df, az_col = az_item[0], az_item[2], az_item[3]
+    el_idx, el_df, el_col = el_item[0], el_item[2], el_item[3]
 
     az = az_df[["t_sec_rel", "time_HH:MM:SS", "time_iso_utc", "x_px", "y_px", az_col]].copy()
     az = az.rename(columns={"x_px": "x_px_az", "y_px": "y_px_az", az_col: f"{ycol}_azimuth"})
