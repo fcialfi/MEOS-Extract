@@ -1023,7 +1023,7 @@ def generate_polar_plot_artifacts(out_path: Path, section_frames: dict, selector
         ax_p.scatter(theta[:1], radius_norm[:1], c="#00AA88", marker="^", s=72, zorder=4)
         ax_p.scatter(theta[-1:], radius_norm[-1:], c="#66CCFF", marker="D", s=70, zorder=4)
         ax_p.set_theta_zero_location("N")
-        ax_p.set_theta_direction(1)
+        ax_p.set_theta_direction(-1)
         ax_p.set_ylim(0.0, 1.02)
         ax_p.set_rticks([0.0, 0.5, 1.0])
         ax_p.set_yticklabels(["0", "0.5", "1"])
