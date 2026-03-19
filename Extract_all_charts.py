@@ -1605,6 +1605,12 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
             continue
         vmin, vmax = float(np.min(v)), float(np.max(v))
         vrng = float(vmax - vmin)
+        peak_idx = int(np.nanargmax(v))
+        peak_frac = (peak_idx / max(len(v) - 1, 1)) if len(v) else 0.5
+        edge_span = max(1, len(v) // 12)
+        edge_mean = float(np.nanmean(np.concatenate([v[:edge_span], v[-edge_span:]])))
+        edge_relief = (vmax - edge_mean) / max(vrng, 1e-6)
+        interior_peak_score = max(0.0, 1.0 - abs(peak_frac - 0.5) / 0.5)
 
         d1 = np.diff(v)
         nz = d1[np.abs(d1) > 1e-9]
@@ -1636,14 +1642,32 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
         el_score = (
             2.0 * frac_el
             + 1.7 * bell_score
+            + 1.6 * interior_peak_score
+            + 1.4 * max(0.0, edge_relief)
             + (1.0 if 5 <= vmax <= 95 else -0.8)
             - 0.001 * max(0.0, vrng - 90.0)
+            - (1.2 if peak_frac <= 0.08 or peak_frac >= 0.92 else 0.0)
             + (4.0 if name_has_el else 0.0)
             - (1.5 if name_has_az else 0.0)
             + (0.8 if vmax <= 60 else 0.0)
         )
 
-        scored.append((idx, series_name, df, val_col, az_score, el_score, vmin, vmax, vrng, mono_score, bell_score))
+        scored.append((
+            idx,
+            series_name,
+            df,
+            val_col,
+            az_score,
+            el_score,
+            vmin,
+            vmax,
+            vrng,
+            mono_score,
+            bell_score,
+            peak_frac,
+            edge_relief,
+            interior_peak_score,
+        ))
 
     if len(scored) < 2:
         return None
