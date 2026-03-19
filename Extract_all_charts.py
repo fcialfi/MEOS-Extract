@@ -551,7 +551,8 @@ def extract_curves_for_header(hdr):
                     pts = [apply_tr(x, y, Sx, Sy, Tx, Ty) for x, y in sp]
                     if len(pts) < 3:
                         continue
-                    candidates.append((score_pts(pts), f"{base_title}_p{sp_i}", pd.DataFrame(pts, columns=["x_px", "y_px"]), ticks))
+                    color = _svg_series_color(p, g)
+                    candidates.append((score_pts(pts), f"{base_title}_p{sp_i}", pd.DataFrame(pts, columns=["x_px", "y_px"]), ticks, color))
 
             for pl_i, pl in enumerate(g.find_all("polyline"), start=1):
                 raw = (pl.get("points") or "").strip()
@@ -567,7 +568,8 @@ def extract_curves_for_header(hdr):
                     continue
                 Sx, Sy, Tx, Ty = cumulative_transform(pl)
                 pts = [apply_tr(x, y, Sx, Sy, Tx, Ty) for x, y in pts_local]
-                candidates.append((score_pts(pts), f"{base_title}_pl{pl_i}", pd.DataFrame(pts, columns=["x_px", "y_px"]), ticks))
+                color = _svg_series_color(pl, g)
+                candidates.append((score_pts(pts), f"{base_title}_pl{pl_i}", pd.DataFrame(pts, columns=["x_px", "y_px"]), ticks, color))
 
     if not candidates:
         return []
@@ -575,14 +577,14 @@ def extract_curves_for_header(hdr):
     candidates.sort(key=lambda x: x[0], reverse=True)
     picked = []
     seen = set()
-    for score, title, df, ticks in candidates:
+    for score, title, df, ticks, color in candidates:
         xs = df["x_px"].to_numpy()
         ys = df["y_px"].to_numpy()
         key = (round(float(xs.min()), 1), round(float(xs.max()), 1), round(float(ys.min()), 1), round(float(ys.max()), 1), len(df))
         if key in seen:
             continue
         seen.add(key)
-        picked.append((title, df, ticks))
+        picked.append((title, df, ticks, color))
         if len(picked) >= 10:
             break
 
@@ -659,6 +661,60 @@ def safe_sheet_name(title: str):
     t = ''.join('_' if ch in forbidden else ch for ch in title)
     t = t.strip()
     return t[:31] if len(t) > 31 else t
+
+
+def _svg_series_color(*nodes):
+    """Extract the most relevant SVG stroke/fill color from a path/polyline/group."""
+    def read_color(node):
+        if node is None:
+            return None
+        for attr in ("stroke", "fill"):
+            val = (node.get(attr) or "").strip()
+            if val and val.lower() != "none":
+                return val
+        style = node.get("style") or ""
+        for key in ("stroke", "fill"):
+            m = re.search(rf"{key}\s*:\s*([^;]+)", style, flags=re.I)
+            if m:
+                val = m.group(1).strip()
+                if val and val.lower() != "none":
+                    return val
+        return None
+
+    for node in nodes:
+        color = read_color(node)
+        if color:
+            return color
+    return None
+
+
+def _color_family(color: str):
+    """Classify a color as green/purple when possible."""
+    if not color:
+        return None
+    c = color.strip().lower()
+    if any(k in c for k in ("green", "lime", "chartreuse")):
+        return "green"
+    if any(k in c for k in ("purple", "violet", "magenta", "fuchsia")):
+        return "purple"
+    m = re.fullmatch(r"#?([0-9a-f]{6})", c)
+    if m:
+        hx = m.group(1)
+        r = int(hx[0:2], 16)
+        g = int(hx[2:4], 16)
+        b = int(hx[4:6], 16)
+        if g >= max(r, b) + 20:
+            return "green"
+        if (r + b) / 2 >= g + 20:
+            return "purple"
+    m = re.fullmatch(r"rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)", c)
+    if m:
+        r, g, b = map(int, m.groups())
+        if g >= max(r, b) + 20:
+            return "green"
+        if (r + b) / 2 >= g + 20:
+            return "purple"
+    return None
 
 
 def derive_orbit_filename(soup: BeautifulSoup):
@@ -1563,7 +1619,12 @@ def _regularize_antenna_series(df: pd.DataFrame, az_col: str, el_col: str):
 def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
     """Build a single antenna dataframe with azimuth and elevation columns."""
     mapped = []
-    for idx, (series_name, raw_df, ticks) in enumerate(curves, start=1):
+    for idx, curve in enumerate(curves, start=1):
+        if len(curve) == 4:
+            series_name, raw_df, ticks, series_color = curve
+        else:
+            series_name, raw_df, ticks = curve
+            series_color = None
         base_curve = _sanitize_curve_timebase(raw_df.copy())
         base = map_x_to_time(base_curve, start_dt, stop_dt)
         if base.empty:
@@ -1588,14 +1649,14 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
             vals = pd.to_numeric(cand_df[cand_col], errors="coerce")
             if vals.dropna().empty:
                 continue
-            mapped.append((idx, series_name, cand_df, vals, cand_col))
+            mapped.append((idx, series_name, cand_df, vals, cand_col, series_color))
 
     if len(mapped) < 2:
         return None
 
     # choose azimuth/elevation with value-domain aware scoring.
     scored = []
-    for idx, series_name, df, vals, val_col in mapped:
+    for idx, series_name, df, vals, val_col, series_color in mapped:
         tmp = df[["t_sec_rel", val_col]].copy()
         tmp = tmp.dropna().sort_values("t_sec_rel")
         if len(tmp) < 8:
@@ -1636,6 +1697,7 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
         name = (series_name or "").lower()
         name_has_az = ("az" in name) or ("azimuth" in name)
         name_has_el = ("el" in name) or ("elev" in name)
+        color_family = _color_family(series_color)
 
         az_score = (
             2.0 * frac_az
@@ -1643,6 +1705,7 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
             + (1.2 if vmax > 120 else 0.0)
             + 0.001 * vrng
             + (4.0 if name_has_az else 0.0)
+            + (6.0 if color_family == "purple" else 0.0)
             - (1.5 if name_has_el else 0.0)
         )
         el_score = (
@@ -1657,6 +1720,7 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
             - 4.0 * max(0.0, max_step_rel - 0.12)
             - 2.5 * jump_outlier_frac
             + (4.0 if name_has_el else 0.0)
+            + (6.0 if color_family == "green" else 0.0)
             - (1.5 if name_has_az else 0.0)
             + (0.8 if vmax <= 60 else 0.0)
         )
@@ -1666,6 +1730,7 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
             series_name,
             df,
             val_col,
+            color_family,
             az_score,
             el_score,
             vmin,
@@ -1686,17 +1751,19 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
 
     az_named = [t for t in scored if ("az" in (t[1] or "").lower()) or ("azimuth" in (t[1] or "").lower())]
     el_named = [t for t in scored if ("el" in (t[1] or "").lower()) or ("elev" in (t[1] or "").lower())]
+    az_colored = [t for t in scored if t[4] == "purple"]
+    el_colored = [t for t in scored if t[4] == "green"]
 
-    az_pool = az_named if az_named else scored
-    az_item = max(az_pool, key=lambda t: t[4])
-    el_pool = el_named if el_named else scored
+    az_pool = az_colored if az_colored else (az_named if az_named else scored)
+    az_item = max(az_pool, key=lambda t: t[5])
+    el_pool = el_colored if el_colored else (el_named if el_named else scored)
     el_candidates = [t for t in el_pool if t[0] != az_item[0]]
     if not el_candidates:
         # fallback to different mapping candidate from same raw curve
         el_candidates = [t for t in el_pool if t[3] != az_item[3]]
         if not el_candidates:
             return None
-    el_item = max(el_candidates, key=lambda t: t[5])
+    el_item = max(el_candidates, key=lambda t: t[6])
 
     az_idx, az_df, az_col = az_item[0], az_item[2], az_item[3]
     el_idx, el_df, el_col = el_item[0], el_item[2], el_item[3]
