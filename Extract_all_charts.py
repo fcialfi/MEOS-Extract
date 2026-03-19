@@ -1616,6 +1616,12 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
         nz = d1[np.abs(d1) > 1e-9]
         if len(nz) == 0:
             continue
+        abs_d1 = np.abs(d1)
+        max_step_rel = float(np.nanmax(abs_d1) / max(vrng, 1e-6))
+        median_step = float(np.nanmedian(abs_d1)) if len(abs_d1) else 0.0
+        jump_floor = max(0.12 * vrng, 3.0 * median_step, 1e-6)
+        jump_outlier_frac = float(np.mean(abs_d1 > jump_floor)) if len(abs_d1) else 0.0
+        smooth_score = max(0.0, 1.0 - min(1.0, max_step_rel / 0.12))
         frac_pos = float(np.mean(nz > 0))
         frac_neg = float(np.mean(nz < 0))
         mono_score = max(frac_pos, frac_neg)
@@ -1644,9 +1650,12 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
             + 1.7 * bell_score
             + 1.6 * interior_peak_score
             + 1.4 * max(0.0, edge_relief)
+            + 1.2 * smooth_score
             + (1.0 if 5 <= vmax <= 95 else -0.8)
             - 0.001 * max(0.0, vrng - 90.0)
             - (1.2 if peak_frac <= 0.08 or peak_frac >= 0.92 else 0.0)
+            - 4.0 * max(0.0, max_step_rel - 0.12)
+            - 2.5 * jump_outlier_frac
             + (4.0 if name_has_el else 0.0)
             - (1.5 if name_has_az else 0.0)
             + (0.8 if vmax <= 60 else 0.0)
@@ -1667,6 +1676,9 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
             peak_frac,
             edge_relief,
             interior_peak_score,
+            max_step_rel,
+            jump_outlier_frac,
+            smooth_score,
         ))
 
     if len(scored) < 2:
