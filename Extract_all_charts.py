@@ -1557,6 +1557,38 @@ def _numeric_tick_groups(ticks: pd.DataFrame):
     return groups
 
 
+def _tick_group_minmax(tick_group: pd.DataFrame):
+    """Return numeric min/max for a tick group."""
+    if tick_group is None or tick_group.empty:
+        return None, None
+    grp = tick_group.copy()
+    if "val" not in grp:
+        grp["val"] = grp["text"].apply(lambda t: float(re.sub(r"[^0-9+\-.,]", "", str(t)).replace(",", ".")))
+    vals = pd.to_numeric(grp["val"], errors="coerce").dropna()
+    if vals.empty:
+        return None, None
+    return float(vals.min()), float(vals.max())
+
+
+def _tick_group_matches_series(series_name: str, tick_group: pd.DataFrame):
+    """Check whether a Y-axis tick group is compatible with the expected series."""
+    name = (series_name or "").lower()
+    vmin, vmax = _tick_group_minmax(tick_group)
+    if vmin is None or vmax is None:
+        return False
+
+    is_plot1 = "gnuplot_plot_1" in name
+    is_plot2 = "gnuplot_plot_2" in name
+    is_az = is_plot1 or _is_azimuth_label(name)
+    is_el = is_plot2 or _is_elevation_label(name)
+
+    if is_az:
+        return vmax >= 180.0
+    if is_el:
+        return -5.0 <= vmin <= 10.0 and 45.0 <= vmax <= 95.0
+    return True
+
+
 def _sanitize_curve_timebase(raw_df: pd.DataFrame):
     """Ensure curve is single-valued over x (time axis) by collapsing duplicate x samples."""
     if raw_df is None or raw_df.empty:
@@ -1654,9 +1686,15 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
             continue
 
         candidates = []
+        explicit_series_axis = (
+            "gnuplot_plot_1" in (series_name or "").lower()
+            or "gnuplot_plot_2" in (series_name or "").lower()
+            or _is_azimuth_label(series_name or "")
+            or _is_elevation_label(series_name or "")
+        )
         # candidate 1: all numeric ticks together
         all_num = ticks[ticks.get("kind") == "num"].copy() if ticks is not None and not ticks.empty else pd.DataFrame()
-        if not all_num.empty:
+        if not all_num.empty and not explicit_series_axis:
             all_num["val"] = all_num["text"].apply(lambda t: float(re.sub(r"[^0-9+\-.,]", "", str(t)).replace(",", ".")))
             all_num = all_num.dropna(subset=["x_px", "y_px", "val"])
             if len(all_num) >= 2:
@@ -1665,6 +1703,8 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
 
         # candidate 2..n: per-side numeric tick groups (dual-axis charts)
         for g_i, grp in enumerate(_numeric_tick_groups(ticks), start=1):
+            if explicit_series_axis and not _tick_group_matches_series(series_name, grp):
+                continue
             dfg = _map_curve_with_ticks_group(base, grp, f"value_{idx}_g{g_i}")
             candidates.append((dfg, f"value_{idx}_g{g_i}"))
 
