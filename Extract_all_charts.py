@@ -1245,6 +1245,8 @@ def _build_plot_artifacts(out_dir: Path, stem: str, series_map: dict, include_so
         return []
 
     try:
+        import matplotlib
+        matplotlib.use("Agg", force=True)
         import matplotlib.pyplot as plt
         has_matplotlib = True
     except ImportError:
