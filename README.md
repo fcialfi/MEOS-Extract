@@ -32,7 +32,7 @@ Un'interfaccia Tkinter è disponibile per elaborare più cartelle.
 3. Selezionare la cartella di destinazione con **Seleziona output**.
 4. (Opzionale) Abilitare le opzioni nel riquadro **Statistics**:
    - `demodulator_lock_state`: conta gli eventi di unlock interni al pass (pattern stabile `1→0→1`).
-   - `Polar plot Input Level`, `Polar plot Eb/No`, `Polar plot SNR`: genera grafici polari a colori rispetto ad azimuth/elevation.
+   - `Polar plot Input Level`, `Polar plot Eb/No`, `Polar plot SNR`: genera grafici polari a colori rispetto ad azimuth/elevation; nel plot SNR gli eventuali campioni con `demodulator_lock_state = 0` vengono evidenziati in viola.
 5. Scegliere la modalità dei plot:
    - `one set per file`: genera i plot separati per ciascun report elaborato.
    - `one combined set for all files`: genera anche un solo plot per parametro selezionato, aggregando i dati di tutti i report elaborati.
