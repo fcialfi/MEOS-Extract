@@ -854,8 +854,9 @@ def _find_metric_section(section_frames: dict, selector: str):
 
 def _find_lock_state_section(section_frames: dict):
     """Return the demodulator lock-state series, if available."""
+    lock_token = _normalized_label("demodulator_lock_state")
     for ycol, df in section_frames.items():
-        if "demodulator_lock_state" in _normalized_label(ycol) and ycol in df:
+        if lock_token in _normalized_label(ycol) and ycol in df:
             return ycol, df
     return None, None
 
@@ -1212,6 +1213,24 @@ def _build_interactive_plot_artifacts(out_dir: Path, stem: str, series_map: dict
             hovertemplate="Orbit: %{customdata[0]}<br>Azimuth: %{customdata[1]:.2f}°<br>Elevation: %{customdata[2]:.2f}°<br>Value: %{customdata[3]:.2f}<extra></extra>",
             showlegend=False,
         ))
+        if selector == "snr" and len(unlock_mask) == len(x) and np.any(unlock_mask):
+            unlock_custom3d = np.column_stack([
+                point_source[unlock_mask],
+                az_vals[unlock_mask],
+                el_vals[unlock_mask],
+                metric_vals[unlock_mask],
+                lock_vals[unlock_mask],
+            ])
+            fig3.add_trace(go.Scatter3d(
+                x=x[unlock_mask],
+                y=y[unlock_mask],
+                z=z[unlock_mask],
+                mode="markers",
+                marker=dict(size=5, color="#8A2BE2", line=dict(color="#5A189A", width=1)),
+                name="Unlocks (lock=0)",
+                customdata=unlock_custom3d,
+                hovertemplate="Orbit: %{customdata[0]}<br>Azimuth: %{customdata[1]:.2f}°<br>Elevation: %{customdata[2]:.2f}°<br>SNR: %{customdata[3]:.2f}<br>Lock state: %{customdata[4]:.0f}<extra></extra>",
+            ))
         html3 = out_dir / f"{stem}_{metric_col}_3d_interactive.html"
         fig3.update_layout(title=f"{metric_col} 3D spherical sky-view{title_suffix}", scene=dict(xaxis_title="X", yaxis_title="Y", zaxis_title="Z"))
         fig3.write_html(str(html3), include_plotlyjs="cdn")
@@ -1330,6 +1349,18 @@ def _build_plot_artifacts(out_dir: Path, stem: str, series_map: dict, include_so
                         tx, ty, tz = _spherical_to_cartesian(chunk_az, chunk_el)
                         ax3d.plot(tx, ty, tz, color="black", alpha=0.75, linewidth=1.4)
                 sc3d = ax3d.scatter(x, y, z, c=metric_vals, cmap="turbo", s=24, depthshade=False)
+                if selector == "snr" and len(unlock_mask) == len(x) and np.any(unlock_mask):
+                    ax3d.scatter(
+                        x[unlock_mask],
+                        y[unlock_mask],
+                        z[unlock_mask],
+                        c="#8A2BE2",
+                        s=34,
+                        depthshade=False,
+                        edgecolors="#5A189A",
+                        linewidths=0.6,
+                        label="Unlocks (lock=0)",
+                    )
                 ax3d.scatter([0.0], [0.0], [0.0], c="black", s=42)
                 ax3d.text(0.02, 0.02, 0.02, "Antenna", fontsize=8)
                 ax3d.scatter([x[0]], [y[0]], [z[0]], c="white", edgecolors="black", s=60)
@@ -1343,6 +1374,8 @@ def _build_plot_artifacts(out_dir: Path, stem: str, series_map: dict, include_so
                 ax3d.set_ylim(-lim, lim)
                 ax3d.set_zlim(0.0, lim)
                 ax3d.view_init(elev=24, azim=48)
+                if selector == "snr" and len(unlock_mask) == len(x) and np.any(unlock_mask):
+                    ax3d.legend(loc="upper left")
                 cbar3d = fig3d.colorbar(sc3d, ax=ax3d, pad=0.08)
                 cbar3d.set_label(metric_col)
 
