@@ -539,8 +539,11 @@ def extract_curves_for_header(hdr):
             groups = [g for g in svg.find_all("g") if g.find("path") or g.find("polyline")]
 
         for idx, g in enumerate(groups, start=1):
+            group_id = (g.get("id") or "").strip() or f"svg{sidx}_series_{idx}"
+            explicit_label = _svg_series_label(g)
             title_tag = g.find("title")
-            base_title = title_tag.get_text(" ", strip=True) if title_tag else f"svg{sidx}_series_{idx}"
+            base_title = explicit_label or (title_tag.get_text(" ", strip=True) if title_tag else group_id)
+            series_tag = f"{group_id} {base_title}".strip()
 
             for p in g.find_all("path"):
                 d = p.get("d")
@@ -552,7 +555,7 @@ def extract_curves_for_header(hdr):
                     if len(pts) < 3:
                         continue
                     color = _svg_series_color(p, g)
-                    candidates.append((score_pts(pts), f"{base_title}_p{sp_i}", pd.DataFrame(pts, columns=["x_px", "y_px"]), ticks, color))
+                    candidates.append((score_pts(pts), f"{series_tag}_p{sp_i}", pd.DataFrame(pts, columns=["x_px", "y_px"]), ticks, color))
 
             for pl_i, pl in enumerate(g.find_all("polyline"), start=1):
                 raw = (pl.get("points") or "").strip()
@@ -569,7 +572,7 @@ def extract_curves_for_header(hdr):
                 Sx, Sy, Tx, Ty = cumulative_transform(pl)
                 pts = [apply_tr(x, y, Sx, Sy, Tx, Ty) for x, y in pts_local]
                 color = _svg_series_color(pl, g)
-                candidates.append((score_pts(pts), f"{base_title}_pl{pl_i}", pd.DataFrame(pts, columns=["x_px", "y_px"]), ticks, color))
+                candidates.append((score_pts(pts), f"{series_tag}_pl{pl_i}", pd.DataFrame(pts, columns=["x_px", "y_px"]), ticks, color))
 
     if not candidates:
         return []
@@ -715,6 +718,26 @@ def _color_family(color: str):
         if (r + b) / 2 >= g + 20:
             return "purple"
     return None
+
+
+def _svg_series_label(group):
+    """Extract an explicit series label/legend from an SVG group when available."""
+    if group is None:
+        return None
+
+    titles = [t.get_text(" ", strip=True) for t in group.find_all("title") if t.get_text(" ", strip=True)]
+    for txt in titles:
+        if _is_azimuth_label(txt) or _is_elevation_label(txt):
+            return txt
+
+    for text_tag in group.find_all("text"):
+        txt = text_tag.get_text(" ", strip=True)
+        if not txt:
+            continue
+        if _is_azimuth_label(txt) or _is_elevation_label(txt):
+            return txt
+
+    return titles[0] if titles else None
 
 
 def derive_orbit_filename(soup: BeautifulSoup):
@@ -1749,14 +1772,16 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
     if len(scored) < 2:
         return None
 
-    az_named = [t for t in scored if ("az" in (t[1] or "").lower()) or ("azimuth" in (t[1] or "").lower())]
-    el_named = [t for t in scored if ("el" in (t[1] or "").lower()) or ("elev" in (t[1] or "").lower())]
+    az_named = [t for t in scored if _is_azimuth_label(t[1] or "")]
+    el_named = [t for t in scored if _is_elevation_label(t[1] or "")]
+    az_group = [t for t in scored if re.search(r"\bgnuplot_plot_1\b", t[1] or "", flags=re.I)]
+    el_group = [t for t in scored if re.search(r"\bgnuplot_plot_2\b", t[1] or "", flags=re.I)]
     az_colored = [t for t in scored if t[4] == "purple"]
     el_colored = [t for t in scored if t[4] == "green"]
 
-    az_pool = az_colored if az_colored else (az_named if az_named else scored)
+    az_pool = az_group if az_group else (az_named if az_named else (az_colored if az_colored else scored))
     az_item = max(az_pool, key=lambda t: t[5])
-    el_pool = el_colored if el_colored else (el_named if el_named else scored)
+    el_pool = el_group if el_group else (el_named if el_named else (el_colored if el_colored else scored))
     el_candidates = [t for t in el_pool if t[0] != az_item[0]]
     if not el_candidates:
         # fallback to different mapping candidate from same raw curve
