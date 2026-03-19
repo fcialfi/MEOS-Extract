@@ -539,8 +539,11 @@ def extract_curves_for_header(hdr):
             groups = [g for g in svg.find_all("g") if g.find("path") or g.find("polyline")]
 
         for idx, g in enumerate(groups, start=1):
+            group_id = (g.get("id") or "").strip() or f"svg{sidx}_series_{idx}"
+            explicit_label = _svg_series_label(g)
             title_tag = g.find("title")
-            base_title = title_tag.get_text(" ", strip=True) if title_tag else f"svg{sidx}_series_{idx}"
+            base_title = explicit_label or (title_tag.get_text(" ", strip=True) if title_tag else group_id)
+            series_tag = f"{group_id} {base_title}".strip()
 
             for p in g.find_all("path"):
                 d = p.get("d")
@@ -551,7 +554,8 @@ def extract_curves_for_header(hdr):
                     pts = [apply_tr(x, y, Sx, Sy, Tx, Ty) for x, y in sp]
                     if len(pts) < 3:
                         continue
-                    candidates.append((score_pts(pts), f"{base_title}_p{sp_i}", pd.DataFrame(pts, columns=["x_px", "y_px"]), ticks))
+                    color = _svg_series_color(p, g)
+                    candidates.append((score_pts(pts), f"{series_tag}_p{sp_i}", pd.DataFrame(pts, columns=["x_px", "y_px"]), ticks, color))
 
             for pl_i, pl in enumerate(g.find_all("polyline"), start=1):
                 raw = (pl.get("points") or "").strip()
@@ -567,7 +571,8 @@ def extract_curves_for_header(hdr):
                     continue
                 Sx, Sy, Tx, Ty = cumulative_transform(pl)
                 pts = [apply_tr(x, y, Sx, Sy, Tx, Ty) for x, y in pts_local]
-                candidates.append((score_pts(pts), f"{base_title}_pl{pl_i}", pd.DataFrame(pts, columns=["x_px", "y_px"]), ticks))
+                color = _svg_series_color(pl, g)
+                candidates.append((score_pts(pts), f"{series_tag}_pl{pl_i}", pd.DataFrame(pts, columns=["x_px", "y_px"]), ticks, color))
 
     if not candidates:
         return []
@@ -575,14 +580,14 @@ def extract_curves_for_header(hdr):
     candidates.sort(key=lambda x: x[0], reverse=True)
     picked = []
     seen = set()
-    for score, title, df, ticks in candidates:
+    for score, title, df, ticks, color in candidates:
         xs = df["x_px"].to_numpy()
         ys = df["y_px"].to_numpy()
         key = (round(float(xs.min()), 1), round(float(xs.max()), 1), round(float(ys.min()), 1), round(float(ys.max()), 1), len(df))
         if key in seen:
             continue
         seen.add(key)
-        picked.append((title, df, ticks))
+        picked.append((title, df, ticks, color))
         if len(picked) >= 10:
             break
 
@@ -659,6 +664,80 @@ def safe_sheet_name(title: str):
     t = ''.join('_' if ch in forbidden else ch for ch in title)
     t = t.strip()
     return t[:31] if len(t) > 31 else t
+
+
+def _svg_series_color(*nodes):
+    """Extract the most relevant SVG stroke/fill color from a path/polyline/group."""
+    def read_color(node):
+        if node is None:
+            return None
+        for attr in ("stroke", "fill"):
+            val = (node.get(attr) or "").strip()
+            if val and val.lower() != "none":
+                return val
+        style = node.get("style") or ""
+        for key in ("stroke", "fill"):
+            m = re.search(rf"{key}\s*:\s*([^;]+)", style, flags=re.I)
+            if m:
+                val = m.group(1).strip()
+                if val and val.lower() != "none":
+                    return val
+        return None
+
+    for node in nodes:
+        color = read_color(node)
+        if color:
+            return color
+    return None
+
+
+def _color_family(color: str):
+    """Classify a color as green/purple when possible."""
+    if not color:
+        return None
+    c = color.strip().lower()
+    if any(k in c for k in ("green", "lime", "chartreuse")):
+        return "green"
+    if any(k in c for k in ("purple", "violet", "magenta", "fuchsia")):
+        return "purple"
+    m = re.fullmatch(r"#?([0-9a-f]{6})", c)
+    if m:
+        hx = m.group(1)
+        r = int(hx[0:2], 16)
+        g = int(hx[2:4], 16)
+        b = int(hx[4:6], 16)
+        if g >= max(r, b) + 20:
+            return "green"
+        if (r + b) / 2 >= g + 20:
+            return "purple"
+    m = re.fullmatch(r"rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)", c)
+    if m:
+        r, g, b = map(int, m.groups())
+        if g >= max(r, b) + 20:
+            return "green"
+        if (r + b) / 2 >= g + 20:
+            return "purple"
+    return None
+
+
+def _svg_series_label(group):
+    """Extract an explicit series label/legend from an SVG group when available."""
+    if group is None:
+        return None
+
+    titles = [t.get_text(" ", strip=True) for t in group.find_all("title") if t.get_text(" ", strip=True)]
+    for txt in titles:
+        if _is_azimuth_label(txt) or _is_elevation_label(txt):
+            return txt
+
+    for text_tag in group.find_all("text"):
+        txt = text_tag.get_text(" ", strip=True)
+        if not txt:
+            continue
+        if _is_azimuth_label(txt) or _is_elevation_label(txt):
+            return txt
+
+    return titles[0] if titles else None
 
 
 def derive_orbit_filename(soup: BeautifulSoup):
@@ -852,6 +931,15 @@ def _find_metric_section(section_frames: dict, selector: str):
     return scored[0][2], scored[0][3]
 
 
+def _find_lock_state_section(section_frames: dict):
+    """Return the demodulator lock-state series, if available."""
+    lock_token = _normalized_label("demodulator_lock_state")
+    for ycol, df in section_frames.items():
+        if lock_token in _normalized_label(ycol) and ycol in df:
+            return ycol, df
+    return None, None
+
+
 def _align_metric_with_az_el(metric: pd.DataFrame, az: pd.DataFrame, el: pd.DataFrame):
     """Align metric samples with azimuth/elevation on common time interval."""
     # common overlap window
@@ -901,6 +989,28 @@ def _align_metric_with_az_el(metric: pd.DataFrame, az: pd.DataFrame, el: pd.Data
     })
     aligned = aligned.dropna(subset=["metric", "azimuth", "elevation"])
     return aligned
+
+
+def _align_lock_state_to_times(lock_df: pd.DataFrame, t_values):
+    """Align lock-state samples to the supplied time base using zero-order hold."""
+    if lock_df is None or len(lock_df) == 0 or len(t_values) == 0:
+        return np.array([], dtype=float)
+
+    lock = lock_df[["t_sec_rel", "lock_state"]].copy()
+    lock["t_sec_rel"] = pd.to_numeric(lock["t_sec_rel"], errors="coerce")
+    lock["lock_state"] = pd.to_numeric(lock["lock_state"], errors="coerce")
+    lock = lock.dropna().sort_values("t_sec_rel").drop_duplicates("t_sec_rel", keep="last")
+    if lock.empty:
+        return np.array([], dtype=float)
+
+    t = np.asarray(t_values, dtype=float)
+    pos = np.searchsorted(lock["t_sec_rel"].to_numpy(dtype=float), t, side="right") - 1
+    lock_vals = np.full(len(t), np.nan, dtype=float)
+    valid = pos >= 0
+    if np.any(valid):
+        states = lock["lock_state"].to_numpy(dtype=float)
+        lock_vals[valid] = states[pos[valid]]
+    return lock_vals
 
 
 def _spherical_to_cartesian(az_deg, el_deg):
@@ -990,6 +1100,10 @@ def collect_polar_plot_series(section_frames: dict, selectors, source_label=None
 
     az_tmp = az[["t_sec_rel", az_col]].rename(columns={az_col: "azimuth"})
     el_tmp = el[["t_sec_rel", el_col]].rename(columns={el_col: "elevation"})
+    lock_col, lock_df = _find_lock_state_section(section_frames)
+    lock_tmp = None
+    if lock_df is not None and lock_col is not None:
+        lock_tmp = lock_df[["t_sec_rel", lock_col]].rename(columns={lock_col: "lock_state"})
     track_az, track_el = _build_base_track(az_tmp, el_tmp)
     collected = {}
 
@@ -1021,6 +1135,13 @@ def collect_polar_plot_series(section_frames: dict, selectors, source_label=None
         metric_vals = aligned["metric"].to_numpy(dtype=float)
         valid = np.isfinite(az_vals) & np.isfinite(el_vals) & np.isfinite(metric_vals)
         valid &= (el_vals >= 0.0) & (el_vals <= 90.0)
+        lock_vals = None
+        unlock_mask = None
+        if lock_tmp is not None:
+            lock_vals = _align_lock_state_to_times(lock_tmp, aligned["t_sec_rel"].to_numpy(dtype=float))
+            lock_vals = lock_vals[valid] if len(lock_vals) else lock_vals
+            if len(lock_vals):
+                unlock_mask = np.isfinite(lock_vals) & (np.rint(lock_vals).astype(int) == 0)
         az_vals, el_vals, metric_vals = az_vals[valid], el_vals[valid], metric_vals[valid]
         if len(az_vals) < 3:
             logger.warning("Polar/3D plot '%s' skipped: insufficient valid angle samples", metric_col)
@@ -1033,6 +1154,8 @@ def collect_polar_plot_series(section_frames: dict, selectors, source_label=None
             "azimuth": az_vals,
             "elevation": el_vals,
             "metric": metric_vals,
+            "lock_state": lock_vals if lock_vals is not None else np.array([], dtype=float),
+            "unlock_mask": unlock_mask if unlock_mask is not None else np.array([], dtype=bool),
             "point_source": point_source,
             "track_az": np.mod(track_az, 360.0),
             "track_el": track_el,
@@ -1073,6 +1196,8 @@ def _build_interactive_plot_artifacts(out_dir: Path, stem: str, series_map: dict
         az_vals = np.asarray(series["azimuth"], dtype=float)
         el_vals = np.asarray(series["elevation"], dtype=float)
         metric_vals = np.asarray(series["metric"], dtype=float)
+        lock_vals = np.asarray(series.get("lock_state", []), dtype=float)
+        unlock_mask = np.asarray(series.get("unlock_mask", []), dtype=bool)
         point_source = np.asarray(series.get("point_source", np.array([series.get("source_label", "combined")] * len(az_vals), dtype=object)), dtype=object)
         track_az = np.asarray(series.get("track_az", []), dtype=float)
         track_el = np.asarray(series.get("track_el", []), dtype=float)
@@ -1116,6 +1241,23 @@ def _build_interactive_plot_artifacts(out_dir: Path, stem: str, series_map: dict
             hovertemplate="Orbit: %{customdata[0]}<br>Azimuth: %{customdata[1]:.2f}°<br>Elevation: %{customdata[2]:.2f}°<br>Value: %{customdata[3]:.2f}<extra></extra>",
             showlegend=False,
         ))
+        if selector == "snr" and len(unlock_mask) == len(az_vals) and np.any(unlock_mask):
+            unlock_custom = np.column_stack([
+                point_source[unlock_mask],
+                az_vals[unlock_mask],
+                el_vals[unlock_mask],
+                metric_vals[unlock_mask],
+                lock_vals[unlock_mask],
+            ])
+            fig_p.add_trace(go.Scatterpolar(
+                theta=az_vals[unlock_mask],
+                r=1.0 - (el_vals[unlock_mask] / 90.0),
+                mode="markers",
+                marker=dict(color="#8A2BE2", size=8, line=dict(color="#5A189A", width=0.8)),
+                name="Unlocks (lock=0)",
+                customdata=unlock_custom,
+                hovertemplate="Orbit: %{customdata[0]}<br>Azimuth: %{customdata[1]:.2f}°<br>Elevation: %{customdata[2]:.2f}°<br>SNR: %{customdata[3]:.2f}<br>Lock state: %{customdata[4]:.0f}<extra></extra>",
+            ))
         if len(az_vals):
             fig_p.add_trace(go.Scatterpolar(theta=[az_vals[0]], r=[1.0 - (el_vals[0] / 90.0)], mode="markers", marker=dict(symbol="triangle-up", size=12, color="#00AA88"), name="Start", hovertemplate=f"Orbit: {point_source[0]}<extra>start</extra>"))
             fig_p.add_trace(go.Scatterpolar(theta=[az_vals[-1]], r=[1.0 - (el_vals[-1] / 90.0)], mode="markers", marker=dict(symbol="diamond", size=11, color="#66CCFF"), name="End", hovertemplate=f"Orbit: {point_source[-1]}<extra>end</extra>"))
@@ -1150,6 +1292,24 @@ def _build_interactive_plot_artifacts(out_dir: Path, stem: str, series_map: dict
             hovertemplate="Orbit: %{customdata[0]}<br>Azimuth: %{customdata[1]:.2f}°<br>Elevation: %{customdata[2]:.2f}°<br>Value: %{customdata[3]:.2f}<extra></extra>",
             showlegend=False,
         ))
+        if selector == "snr" and len(unlock_mask) == len(x) and np.any(unlock_mask):
+            unlock_custom3d = np.column_stack([
+                point_source[unlock_mask],
+                az_vals[unlock_mask],
+                el_vals[unlock_mask],
+                metric_vals[unlock_mask],
+                lock_vals[unlock_mask],
+            ])
+            fig3.add_trace(go.Scatter3d(
+                x=x[unlock_mask],
+                y=y[unlock_mask],
+                z=z[unlock_mask],
+                mode="markers",
+                marker=dict(size=5, color="#8A2BE2", line=dict(color="#5A189A", width=1)),
+                name="Unlocks (lock=0)",
+                customdata=unlock_custom3d,
+                hovertemplate="Orbit: %{customdata[0]}<br>Azimuth: %{customdata[1]:.2f}°<br>Elevation: %{customdata[2]:.2f}°<br>SNR: %{customdata[3]:.2f}<br>Lock state: %{customdata[4]:.0f}<extra></extra>",
+            ))
         html3 = out_dir / f"{stem}_{metric_col}_3d_interactive.html"
         fig3.update_layout(title=f"{metric_col} 3D spherical sky-view{title_suffix}", scene=dict(xaxis_title="X", yaxis_title="Y", zaxis_title="Z"))
         fig3.write_html(str(html3), include_plotlyjs="cdn")
@@ -1164,6 +1324,8 @@ def _build_plot_artifacts(out_dir: Path, stem: str, series_map: dict, include_so
         return []
 
     try:
+        import matplotlib
+        matplotlib.use("Agg", force=True)
         import matplotlib.pyplot as plt
         has_matplotlib = True
     except ImportError:
@@ -1184,6 +1346,7 @@ def _build_plot_artifacts(out_dir: Path, stem: str, series_map: dict, include_so
         az_vals = np.asarray(series["azimuth"], dtype=float)
         el_vals = np.asarray(series["elevation"], dtype=float)
         metric_vals = np.asarray(series["metric"], dtype=float)
+        unlock_mask = np.asarray(series.get("unlock_mask", []), dtype=bool)
         track_az = np.asarray(series.get("track_az", []), dtype=float)
         track_el = np.asarray(series.get("track_el", []), dtype=float)
         track_segments = series.get("track_segments") or []
@@ -1209,6 +1372,17 @@ def _build_plot_artifacts(out_dir: Path, stem: str, series_map: dict, include_so
                         track_radius = 1.0 - (chunk_el / 90.0)
                         ax_p.plot(track_theta, track_radius, color="black", linewidth=1.6, alpha=0.95, zorder=1)
                 sc_p = ax_p.scatter(theta, radius_norm, c=metric_vals, cmap="jet", s=34, zorder=3, edgecolors="none")
+                if selector == "snr" and len(unlock_mask) == len(theta) and np.any(unlock_mask):
+                    ax_p.scatter(
+                        theta[unlock_mask],
+                        radius_norm[unlock_mask],
+                        c="#8A2BE2",
+                        s=42,
+                        zorder=4,
+                        edgecolors="#5A189A",
+                        linewidths=0.5,
+                        label="Unlocks (lock=0)",
+                    )
                 ax_p.scatter(theta[:1], radius_norm[:1], c="#00AA88", marker="^", s=72, zorder=4)
                 ax_p.scatter(theta[-1:], radius_norm[-1:], c="#66CCFF", marker="D", s=70, zorder=4)
                 ax_p.set_theta_zero_location("N")
@@ -1219,6 +1393,8 @@ def _build_plot_artifacts(out_dir: Path, stem: str, series_map: dict, include_so
                 ax_p.set_rlabel_position(18)
                 ax_p.grid(alpha=0.35)
                 ax_p.set_title(f"{metric_col} on antenna track{title_suffix}")
+                if selector == "snr" and len(unlock_mask) == len(theta) and np.any(unlock_mask):
+                    ax_p.legend(loc="upper left")
                 cbar_p = fig_p.colorbar(sc_p, ax=ax_p, pad=0.10)
                 cbar_p.set_label("SNR (dB)" if "snr" in metric_col.lower() or "noise" in metric_col.lower() else metric_col)
                 polar_path = out_dir / f"{stem}_{metric_col}_polar.png"
@@ -1254,6 +1430,18 @@ def _build_plot_artifacts(out_dir: Path, stem: str, series_map: dict, include_so
                         tx, ty, tz = _spherical_to_cartesian(chunk_az, chunk_el)
                         ax3d.plot(tx, ty, tz, color="black", alpha=0.75, linewidth=1.4)
                 sc3d = ax3d.scatter(x, y, z, c=metric_vals, cmap="turbo", s=24, depthshade=False)
+                if selector == "snr" and len(unlock_mask) == len(x) and np.any(unlock_mask):
+                    ax3d.scatter(
+                        x[unlock_mask],
+                        y[unlock_mask],
+                        z[unlock_mask],
+                        c="#8A2BE2",
+                        s=34,
+                        depthshade=False,
+                        edgecolors="#5A189A",
+                        linewidths=0.6,
+                        label="Unlocks (lock=0)",
+                    )
                 ax3d.scatter([0.0], [0.0], [0.0], c="black", s=42)
                 ax3d.text(0.02, 0.02, 0.02, "Antenna", fontsize=8)
                 ax3d.scatter([x[0]], [y[0]], [z[0]], c="white", edgecolors="black", s=60)
@@ -1267,6 +1455,8 @@ def _build_plot_artifacts(out_dir: Path, stem: str, series_map: dict, include_so
                 ax3d.set_ylim(-lim, lim)
                 ax3d.set_zlim(0.0, lim)
                 ax3d.view_init(elev=24, azim=48)
+                if selector == "snr" and len(unlock_mask) == len(x) and np.any(unlock_mask):
+                    ax3d.legend(loc="upper left")
                 cbar3d = fig3d.colorbar(sc3d, ax=ax3d, pad=0.08)
                 cbar3d.set_label(metric_col)
 
@@ -1316,6 +1506,8 @@ def generate_combined_polar_plot_artifacts(output_dir: Path, plot_series_rows: l
             "azimuth": np.concatenate([np.asarray(row["azimuth"], dtype=float) for row in rows]),
             "elevation": np.concatenate([np.asarray(row["elevation"], dtype=float) for row in rows]),
             "metric": np.concatenate([np.asarray(row["metric"], dtype=float) for row in rows]),
+            "lock_state": np.concatenate([np.asarray(row.get("lock_state", np.array([], dtype=float)), dtype=float) for row in rows]),
+            "unlock_mask": np.concatenate([np.asarray(row.get("unlock_mask", np.array([], dtype=bool)), dtype=bool) for row in rows]),
             "point_source": np.concatenate([
                 np.asarray(row.get("point_source", np.array([row.get("source_label", "combined")] * len(row["azimuth"]), dtype=object)), dtype=object)
                 for row in rows
@@ -1363,6 +1555,38 @@ def _numeric_tick_groups(ticks: pd.DataFrame):
     if not groups:
         groups.append(num)
     return groups
+
+
+def _tick_group_minmax(tick_group: pd.DataFrame):
+    """Return numeric min/max for a tick group."""
+    if tick_group is None or tick_group.empty:
+        return None, None
+    grp = tick_group.copy()
+    if "val" not in grp:
+        grp["val"] = grp["text"].apply(lambda t: float(re.sub(r"[^0-9+\-.,]", "", str(t)).replace(",", ".")))
+    vals = pd.to_numeric(grp["val"], errors="coerce").dropna()
+    if vals.empty:
+        return None, None
+    return float(vals.min()), float(vals.max())
+
+
+def _tick_group_matches_series(series_name: str, tick_group: pd.DataFrame):
+    """Check whether a Y-axis tick group is compatible with the expected series."""
+    name = (series_name or "").lower()
+    vmin, vmax = _tick_group_minmax(tick_group)
+    if vmin is None or vmax is None:
+        return False
+
+    is_plot1 = "gnuplot_plot_1" in name
+    is_plot2 = "gnuplot_plot_2" in name
+    is_az = is_plot1 or _is_azimuth_label(name)
+    is_el = is_plot2 or _is_elevation_label(name)
+
+    if is_az:
+        return vmax >= 180.0
+    if is_el:
+        return -5.0 <= vmin <= 10.0 and 45.0 <= vmax <= 95.0
+    return True
 
 
 def _sanitize_curve_timebase(raw_df: pd.DataFrame):
@@ -1450,16 +1674,27 @@ def _regularize_antenna_series(df: pd.DataFrame, az_col: str, el_col: str):
 def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
     """Build a single antenna dataframe with azimuth and elevation columns."""
     mapped = []
-    for idx, (series_name, raw_df, ticks) in enumerate(curves, start=1):
+    for idx, curve in enumerate(curves, start=1):
+        if len(curve) == 4:
+            series_name, raw_df, ticks, series_color = curve
+        else:
+            series_name, raw_df, ticks = curve
+            series_color = None
         base_curve = _sanitize_curve_timebase(raw_df.copy())
         base = map_x_to_time(base_curve, start_dt, stop_dt)
         if base.empty:
             continue
 
         candidates = []
+        explicit_series_axis = (
+            "gnuplot_plot_1" in (series_name or "").lower()
+            or "gnuplot_plot_2" in (series_name or "").lower()
+            or _is_azimuth_label(series_name or "")
+            or _is_elevation_label(series_name or "")
+        )
         # candidate 1: all numeric ticks together
         all_num = ticks[ticks.get("kind") == "num"].copy() if ticks is not None and not ticks.empty else pd.DataFrame()
-        if not all_num.empty:
+        if not all_num.empty and not explicit_series_axis:
             all_num["val"] = all_num["text"].apply(lambda t: float(re.sub(r"[^0-9+\-.,]", "", str(t)).replace(",", ".")))
             all_num = all_num.dropna(subset=["x_px", "y_px", "val"])
             if len(all_num) >= 2:
@@ -1468,6 +1703,8 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
 
         # candidate 2..n: per-side numeric tick groups (dual-axis charts)
         for g_i, grp in enumerate(_numeric_tick_groups(ticks), start=1):
+            if explicit_series_axis and not _tick_group_matches_series(series_name, grp):
+                continue
             dfg = _map_curve_with_ticks_group(base, grp, f"value_{idx}_g{g_i}")
             candidates.append((dfg, f"value_{idx}_g{g_i}"))
 
@@ -1475,14 +1712,14 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
             vals = pd.to_numeric(cand_df[cand_col], errors="coerce")
             if vals.dropna().empty:
                 continue
-            mapped.append((idx, series_name, cand_df, vals, cand_col))
+            mapped.append((idx, series_name, cand_df, vals, cand_col, series_color))
 
     if len(mapped) < 2:
         return None
 
     # choose azimuth/elevation with value-domain aware scoring.
     scored = []
-    for idx, series_name, df, vals, val_col in mapped:
+    for idx, series_name, df, vals, val_col, series_color in mapped:
         tmp = df[["t_sec_rel", val_col]].copy()
         tmp = tmp.dropna().sort_values("t_sec_rel")
         if len(tmp) < 8:
@@ -1492,11 +1729,23 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
             continue
         vmin, vmax = float(np.min(v)), float(np.max(v))
         vrng = float(vmax - vmin)
+        peak_idx = int(np.nanargmax(v))
+        peak_frac = (peak_idx / max(len(v) - 1, 1)) if len(v) else 0.5
+        edge_span = max(1, len(v) // 12)
+        edge_mean = float(np.nanmean(np.concatenate([v[:edge_span], v[-edge_span:]])))
+        edge_relief = (vmax - edge_mean) / max(vrng, 1e-6)
+        interior_peak_score = max(0.0, 1.0 - abs(peak_frac - 0.5) / 0.5)
 
         d1 = np.diff(v)
         nz = d1[np.abs(d1) > 1e-9]
         if len(nz) == 0:
             continue
+        abs_d1 = np.abs(d1)
+        max_step_rel = float(np.nanmax(abs_d1) / max(vrng, 1e-6))
+        median_step = float(np.nanmedian(abs_d1)) if len(abs_d1) else 0.0
+        jump_floor = max(0.12 * vrng, 3.0 * median_step, 1e-6)
+        jump_outlier_frac = float(np.mean(abs_d1 > jump_floor)) if len(abs_d1) else 0.0
+        smooth_score = max(0.0, 1.0 - min(1.0, max_step_rel / 0.12))
         frac_pos = float(np.mean(nz > 0))
         frac_neg = float(np.mean(nz < 0))
         mono_score = max(frac_pos, frac_neg)
@@ -1511,6 +1760,7 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
         name = (series_name or "").lower()
         name_has_az = ("az" in name) or ("azimuth" in name)
         name_has_el = ("el" in name) or ("elev" in name)
+        color_family = _color_family(series_color)
 
         az_score = (
             2.0 * frac_az
@@ -1518,36 +1768,67 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
             + (1.2 if vmax > 120 else 0.0)
             + 0.001 * vrng
             + (4.0 if name_has_az else 0.0)
+            + (6.0 if color_family == "purple" else 0.0)
             - (1.5 if name_has_el else 0.0)
         )
         el_score = (
             2.0 * frac_el
             + 1.7 * bell_score
+            + 1.6 * interior_peak_score
+            + 1.4 * max(0.0, edge_relief)
+            + 1.2 * smooth_score
             + (1.0 if 5 <= vmax <= 95 else -0.8)
             - 0.001 * max(0.0, vrng - 90.0)
+            - (1.2 if peak_frac <= 0.08 or peak_frac >= 0.92 else 0.0)
+            - 4.0 * max(0.0, max_step_rel - 0.12)
+            - 2.5 * jump_outlier_frac
             + (4.0 if name_has_el else 0.0)
+            + (6.0 if color_family == "green" else 0.0)
             - (1.5 if name_has_az else 0.0)
             + (0.8 if vmax <= 60 else 0.0)
         )
 
-        scored.append((idx, series_name, df, val_col, az_score, el_score, vmin, vmax, vrng, mono_score, bell_score))
+        scored.append((
+            idx,
+            series_name,
+            df,
+            val_col,
+            color_family,
+            az_score,
+            el_score,
+            vmin,
+            vmax,
+            vrng,
+            mono_score,
+            bell_score,
+            peak_frac,
+            edge_relief,
+            interior_peak_score,
+            max_step_rel,
+            jump_outlier_frac,
+            smooth_score,
+        ))
 
     if len(scored) < 2:
         return None
 
-    az_named = [t for t in scored if ("az" in (t[1] or "").lower()) or ("azimuth" in (t[1] or "").lower())]
-    el_named = [t for t in scored if ("el" in (t[1] or "").lower()) or ("elev" in (t[1] or "").lower())]
+    az_named = [t for t in scored if _is_azimuth_label(t[1] or "")]
+    el_named = [t for t in scored if _is_elevation_label(t[1] or "")]
+    az_group = [t for t in scored if re.search(r"\bgnuplot_plot_1\b", t[1] or "", flags=re.I)]
+    el_group = [t for t in scored if re.search(r"\bgnuplot_plot_2\b", t[1] or "", flags=re.I)]
+    az_colored = [t for t in scored if t[4] == "purple"]
+    el_colored = [t for t in scored if t[4] == "green"]
 
-    az_pool = az_named if az_named else scored
-    az_item = max(az_pool, key=lambda t: t[4])
-    el_pool = el_named if el_named else scored
+    az_pool = az_group if az_group else (az_named if az_named else (az_colored if az_colored else scored))
+    az_item = max(az_pool, key=lambda t: t[5])
+    el_pool = el_group if el_group else (el_named if el_named else (el_colored if el_colored else scored))
     el_candidates = [t for t in el_pool if t[0] != az_item[0]]
     if not el_candidates:
         # fallback to different mapping candidate from same raw curve
         el_candidates = [t for t in el_pool if t[3] != az_item[3]]
         if not el_candidates:
             return None
-    el_item = max(el_candidates, key=lambda t: t[5])
+    el_item = max(el_candidates, key=lambda t: t[6])
 
     az_idx, az_df, az_col = az_item[0], az_item[2], az_item[3]
     el_idx, el_df, el_col = el_item[0], el_item[2], el_item[3]
