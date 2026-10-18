@@ -230,8 +230,9 @@ def main():
                     logging.info("Saved: %s", out)
                     saved.append(out)
                 except Exception:
+                    # Keep going: one broken report must not discard the rest
+                    # of the batch (statistics and plots included).
                     logging.exception("Error processing %s", report)
-                    return
 
         if selected_stats:
             stats_path = output_dir["path"] / "lock_state_stats.xlsx"

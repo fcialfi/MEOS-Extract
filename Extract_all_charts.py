@@ -2,8 +2,8 @@
 # ------------------------------------------
 # Estrae i grafici dal report HTML (sezioni: Input Level, SNR, Eb/N0,
 # Carrier Offset, Phase Loop Error, Reed-Solomon Frames, Frame Error Rate,
-# Demodulator/FEP Lock State), mappa X a Start→Stop (secondi),
-# ricostruisce Y dai tick numerici, rimuove segmenti spurii (legend/diagonale)
+# Demodulator/FEP Lock State), mappa X al tempo dai tick orari (HH:MM;
+# fallback: Start→Stop), ricostruisce Y dai tick numerici o testuali, rimuove segmenti spurii (legend/diagonale)
 # e salva un unico Excel con un foglio per grafico.
 #
 # Nome file: <prefix>_orbit_<num>.xlsx (prefix e orbit number letti dall'HTML)
@@ -299,46 +299,81 @@ def parse_path_subpaths(d_attr: str):
     return subpaths
 
 
+NUM_TICK_RE = re.compile(
+    r"([-+]?(?:\d+(?:[.,]\d+)?|[.,]\d+)(?:[eE][-+]?\d+)?)\s*([kMGTPmuµn])?\s*(?:dB|°|deg)?"
+)
+SI_PREFIX = {"k": 1e3, "M": 1e6, "G": 1e9, "T": 1e12, "P": 1e15, "m": 1e-3, "u": 1e-6, "µ": 1e-6, "n": 1e-9}
+
+
+def parse_tick_value(text):
+    """Return the numeric value of a tick label (e.g. ``"-10"``, ``"2.5 dB"``, ``"10G"``), or NaN."""
+    m = NUM_TICK_RE.fullmatch(str(text).strip())
+    if not m:
+        return np.nan
+    value = float(m.group(1).replace(",", "."))
+    return value * SI_PREFIX.get(m.group(2), 1.0) if m.group(2) else value
+
+
+def _time_label_seconds(text):
+    """Seconds of day for ``HH:MM`` / ``HH:MM:SS`` labels."""
+    parts = [int(p) for p in str(text).split(":")]
+    return parts[0] * 3600 + parts[1] * 60 + (parts[2] if len(parts) > 2 else 0)
+
+
+def _state_axis_labels(other_rows, x_axis_left=None):
+    """Pick the categorical Y-axis labels (e.g. Idle/Search/Lock) among non-numeric texts.
+
+    Axis labels share the same X column and sit at different heights; legend
+    entries and axis titles are isolated texts and are therefore ignored.
+    """
+    groups = {}
+    for row in other_rows:
+        if x_axis_left is not None and row["x_px"] > x_axis_left:
+            continue
+        groups.setdefault(round(row["x_px"], 0), []).append(row)
+    best = []
+    for _, rows in sorted(groups.items()):
+        if len({round(r["y_px"], 1) for r in rows}) >= 2 and len(rows) > len(best):
+            best = rows
+    return best
+
+
 def svg_axes_from_ticks(svg):
     """
     Estrae tick (label testo) e posizioni pixel assolute.
     Definisce il riquadro assi:
       - X: min/max posizione pixel dei tick orari (HH:MM o HH:MM:SS)
       - Y: min/max posizione pixel dei tick numerici
+    Le etichette testuali dell'asse Y (es. Idle/Search/Lock) sono marcate "state".
     """
     rows = []
+    other_rows = []
     for t in svg.find_all("text"):
         content = (t.get_text() or "").strip()
         if not content:
             continue
-        is_num = re.fullmatch(r"[-+]?\d+(?:[.,]\d+)?(?:\s*(dB|°|deg))?", content) is not None
-        is_time = (
-            re.fullmatch(r"\d{2}:\d{2}", content) is not None or
-            re.fullmatch(r"\d{2}:\d{2}:\d{2}", content) is not None
-        )
-        is_lock_state = re.fullmatch(
-            r"(?i)(lock(?:ed)?|unlock(?:ed)?|no\s*lock|out\s*of\s*lock|loss\s*of\s*lock)",
-            content,
-        ) is not None
-        if not (is_num or is_time or is_lock_state):
-            continue
+        is_num = NUM_TICK_RE.fullmatch(content) is not None
+        is_time = re.fullmatch(r"\d{2}:\d{2}(?::\d{2})?", content) is not None
         Sx, Sy, Tx, Ty = cumulative_transform(t)
         x_px, y_px = apply_tr(0.0, 0.0, Sx, Sy, Tx, Ty)
-        if is_num:
-            kind = "num"
-        elif is_time:
-            kind = "time"
-        else:
-            kind = "state"
-        rows.append({"text": content, "x_px": x_px, "y_px": y_px, "kind": kind})
+        if not (is_num or is_time):
+            if re.search(r"[A-Za-z]", content):
+                other_rows.append({"text": content, "x_px": x_px, "y_px": y_px, "kind": "state"})
+            continue
+        rows.append({"text": content, "x_px": x_px, "y_px": y_px, "kind": "num" if is_num else "time"})
 
-    ticks = pd.DataFrame(rows)
+    time_x = [r["x_px"] for r in rows if r["kind"] == "time"]
+    rows.extend(_state_axis_labels(other_rows, min(time_x) if time_x else None))
+
+    ticks = pd.DataFrame(rows, columns=["text", "x_px", "y_px", "kind"])
 
     if ticks.empty:
         return ticks, (None, None, None, None)
 
     x_ticks = ticks.loc[ticks["kind"] == "time", "x_px"]
     y_ticks = ticks.loc[ticks["kind"] == "num", "y_px"]
+    if y_ticks.empty:
+        y_ticks = ticks.loc[ticks["kind"] == "state", "y_px"]
 
     x_tick_px_min = x_ticks.min() if not x_ticks.empty else None
     x_tick_px_max = x_ticks.max() if not x_ticks.empty else None
@@ -348,54 +383,68 @@ def svg_axes_from_ticks(svg):
     return ticks, (x_tick_px_min, x_tick_px_max, y_tick_px_min, y_tick_px_max)
 
 
-def extract_curve_for_header(hdr):
-    """
-    Per una sezione (h2/h3) già individuata, raccoglie gli SVG sottostanti fino
-    al prossimo h2/h3 e sceglie il sottopercorso dati migliore (massimo numero
-    di punti dentro il riquadro assi).
-    """
-    if hdr is None:
-        return pd.DataFrame(), pd.DataFrame()
+def _load_object_svg(data: str, base_dir=None):
+    """Load the SVG referenced by an ``<object data=...>`` (base64, URL or local path)."""
+    m = re.match(r"^data:image/svg\+xml(;charset=[^;]+)?;base64,(.*)$", data, re.I | re.S)
+    if m:  # Base64 inline data
+        svg_bytes = base64.b64decode(m.group(2))
+    elif data.startswith(("http://", "https://")):  # Remote file
+        with urllib.request.urlopen(data, timeout=30) as resp:
+            svg_bytes = resp.read()
+    elif data:  # Local file path, relative to the HTML report
+        path = Path(data)
+        if not path.is_absolute() and base_dir is not None:
+            path = Path(base_dir) / path
+        svg_bytes = path.read_bytes()
+    else:
+        return None
+    try:
+        svg_soup = BeautifulSoup(svg_bytes, "xml")
+    except FeatureNotFound:
+        logger.warning(
+            "lxml parser not found; falling back to html.parser. Install lxml for full XML support."
+        )
+        svg_soup = BeautifulSoup(svg_bytes, "html.parser")
+    return svg_soup.svg
 
+
+def collect_section_svgs(hdr, base_dir=None, load_objects=True):
+    """Return the SVG charts between *hdr* and the next h2/h3 header.
+
+    Inline SVGs without any text (icons, decorations) are ignored: a chart
+    always has axis labels.
+    """
     svgs = []
+    if hdr is None:
+        return svgs
     for el in hdr.next_elements:
         name = getattr(el, "name", None)
         if name in ("h2", "h3"):
             break
         if name == "svg":
-            svgs.append(el)
+            if el.find("text") is not None:
+                svgs.append(el)
         elif name == "object" and el.get("type") == "image/svg+xml":
+            if not load_objects:
+                svgs.append(el)
+                continue
             data = el.get("data", "")
-            m = re.match(r"^data:image/svg\+xml(;charset=[^;]+)?;base64,(.*)$", data, re.I)
             try:
-                if m:  # Base64 inline data
-                    svg_bytes = base64.b64decode(m.group(2))
-                elif data.startswith(("http://", "https://")):  # Remote file
-                    with urllib.request.urlopen(data) as resp:
-                        svg_bytes = resp.read()
-                elif data:  # Local file path
-                    with open(data, "rb") as f:
-                        svg_bytes = f.read()
-                else:
-                    continue
-                try:
-                    svg_soup = BeautifulSoup(svg_bytes, "xml")
-                except FeatureNotFound:
-                    logger.warning(
-                        "lxml parser not found; falling back to html.parser. Install lxml for full XML support."
-                    )
-                    try:
-                        svg_soup = BeautifulSoup(svg_bytes, "html.parser")
-                    except FeatureNotFound:
-                        import xml.etree.ElementTree as ET
-
-                        svg_soup = BeautifulSoup(
-                            ET.tostring(ET.fromstring(svg_bytes)), "html.parser"
-                        )
-                if svg_soup.svg:
-                    svgs.append(svg_soup.svg)
+                svg = _load_object_svg(data, base_dir)
+                if svg is not None:
+                    svgs.append(svg)
             except Exception as exc:
-                logger.warning("Failed to load SVG from %s: %s", data, exc)
+                logger.warning("Failed to load SVG from %s: %s", data[:80], exc)
+    return svgs
+
+
+def extract_curve_for_header(hdr, base_dir=None):
+    """
+    Per una sezione (h2/h3) già individuata, raccoglie gli SVG sottostanti fino
+    al prossimo h2/h3 e sceglie il sottopercorso dati migliore (massimo numero
+    di punti dentro il riquadro assi).
+    """
+    svgs = collect_section_svgs(hdr, base_dir)
     if not svgs:
         return pd.DataFrame(), pd.DataFrame()
 
@@ -473,41 +522,9 @@ def extract_curve_for_header(hdr):
     return curve_px, ticks
 
 
-def extract_curves_for_header(hdr):
+def extract_curves_for_header(hdr, base_dir=None):
     """Extract multiple candidate curves for a header (multi-series friendly)."""
-    if hdr is None:
-        return []
-
-    svgs = []
-    for el in hdr.next_elements:
-        name = getattr(el, "name", None)
-        if name in ("h2", "h3"):
-            break
-        if name == "svg":
-            svgs.append(el)
-        elif name == "object" and el.get("type") == "image/svg+xml":
-            data = el.get("data", "")
-            m = re.match(r"^data:image/svg\+xml(;charset=[^;]+)?;base64,(.*)$", data, re.I)
-            try:
-                if m:
-                    svg_bytes = base64.b64decode(m.group(2))
-                elif data.startswith(("http://", "https://")):
-                    with urllib.request.urlopen(data) as resp:
-                        svg_bytes = resp.read()
-                elif data:
-                    with open(data, "rb") as f:
-                        svg_bytes = f.read()
-                else:
-                    continue
-                try:
-                    svg_soup = BeautifulSoup(svg_bytes, "xml")
-                except FeatureNotFound:
-                    svg_soup = BeautifulSoup(svg_bytes, "html.parser")
-                if svg_soup.svg:
-                    svgs.append(svg_soup.svg)
-            except Exception:
-                continue
-
+    svgs = collect_section_svgs(hdr, base_dir)
     if not svgs:
         return []
 
@@ -594,24 +611,54 @@ def extract_curves_for_header(hdr):
     return picked
 
 
-def map_x_to_time(df: pd.DataFrame, start_dt: datetime, stop_dt: datetime):
-    """Mappa x_px in tempo assoluto usando Start/Stop (in secondi)."""
-    if df.empty or not start_dt or not stop_dt:
+def _time_tick_fit(ticks: pd.DataFrame, start_dt: datetime):
+    """Fit x_px → seconds from *start_dt* using the HH:MM(:SS) tick labels.
+
+    Returns ``(a, b)`` such that ``t_sec_rel = a * x_px + b``, or ``None``
+    when fewer than two distinct time ticks are available.
+    """
+    if ticks is None or ticks.empty or start_dt is None:
+        return None
+    tt = ticks[ticks["kind"] == "time"].sort_values("x_px")
+    if tt["x_px"].round(2).nunique() < 2:
+        return None
+    secs = tt["text"].apply(_time_label_seconds).to_numpy(dtype=float)
+    # Unwrap midnight crossings (23:59 → 00:00).
+    secs = secs + 86400.0 * np.concatenate([[0], np.cumsum(np.diff(secs) < 0)])
+    a, b = np.polyfit(tt["x_px"].to_numpy(dtype=float), secs, 1)
+    if a <= 0:
+        return None
+    # Express the fit relative to start_dt, choosing the day closest to it.
+    start_sod = start_dt.hour * 3600 + start_dt.minute * 60 + start_dt.second
+    b_rel = b - start_sod
+    first = a * float(tt["x_px"].iloc[0]) + b_rel
+    b_rel -= 86400.0 * round(first / 86400.0)
+    return a, b_rel
+
+
+def map_x_to_time(df: pd.DataFrame, start_dt: datetime, stop_dt: datetime, ticks: pd.DataFrame = None):
+    """Mappa x_px in tempo assoluto.
+
+    Se il grafico ha almeno due tick orari (HH:MM) la posizione viene
+    convertita con un fit lineare sui tick; altrimenti la curva viene stirata
+    sull'intervallo Start→Stop (in secondi).
+    """
+    fit = _time_tick_fit(ticks, start_dt)
+    if df.empty or not start_dt or (not stop_dt and fit is None):
         df["t_sec_rel"] = np.nan
         df["time_HH:MM:SS"] = None
         df["time_iso_utc"] = None
         return df
 
-    dur = (stop_dt - start_dt).total_seconds()
     x_min = df["x_px"].min()
     x_max = df["x_px"].max()
-    if x_max == x_min:
+    if fit is not None:
+        df["t_sec_rel"] = fit[0] * df["x_px"] + fit[1]
+    elif x_max == x_min:
         df["t_sec_rel"] = 0.0
-        df["time_HH:MM:SS"] = start_dt.strftime("%H:%M:%S")
-        df["time_iso_utc"] = start_dt.strftime("%Y-%m-%d %H:%M:%S")
-        return df
-
-    df["t_sec_rel"] = (df["x_px"] - x_min) / (x_max - x_min) * dur
+    else:
+        dur = (stop_dt - start_dt).total_seconds()
+        df["t_sec_rel"] = (df["x_px"] - x_min) / (x_max - x_min) * dur
     df["time_iso_utc"] = df["t_sec_rel"].apply(
         lambda s: (start_dt + timedelta(seconds=float(s))).strftime("%Y-%m-%d %H:%M:%S")
     )
@@ -627,26 +674,29 @@ def map_y_from_ticks(df: pd.DataFrame, ticks: pd.DataFrame, colname: str):
         df[colname] = np.nan
         return df
     y_ticks = ticks[ticks["kind"] == "num"].copy()
-    if not y_ticks.empty:
-        y_ticks["value"] = y_ticks["text"].apply(
-            lambda s: float(re.sub(r"[^0-9+\-.,]", "", s).replace(",", "."))
-        )
+    y_ticks["value"] = y_ticks["text"].apply(parse_tick_value)
+    y_ticks = y_ticks.dropna(subset=["value"])
+    if y_ticks["y_px"].round(2).nunique() >= 2:
         Y = np.vstack([y_ticks["y_px"].values, np.ones(len(y_ticks))]).T
         a, b = np.linalg.lstsq(Y, y_ticks["value"].values, rcond=None)[0]
         df[colname] = a * df["y_px"] + b
         return df
 
-    state_ticks = ticks[ticks["kind"] == "state"].copy()
-    if not state_ticks.empty:
-        state_ticks["value"] = state_ticks["text"].apply(
-            lambda s: 0.0 if re.search(r"(?i)unlock|no\s*lock|out\s*of\s*lock|loss", s) else 1.0
-        )
-        if len(state_ticks) >= 2:
-            Y = np.vstack([state_ticks["y_px"].values, np.ones(len(state_ticks))]).T
-            a, b = np.linalg.lstsq(Y, state_ticks["value"].values, rcond=None)[0]
-            df[colname] = np.round(a * df["y_px"] + b).clip(0, 1)
-        else:
-            df[colname] = state_ticks["value"].iloc[0]
+    state_ticks = ticks[ticks["kind"] == "state"].sort_values("y_px", ascending=False)
+    if len(state_ticks) >= 2:
+        # Categorical axis (e.g. Idle/Search/Lock): snap each point to the
+        # nearest label. Value = level index from the bottom (0, 1, 2, ...),
+        # except for plain locked/unlocked axes which map to 1/0.
+        labels = state_ticks["text"].tolist()
+        levels = state_ticks["y_px"].to_numpy(dtype=float)
+        values = np.arange(len(labels), dtype=float)
+        is_unlock = [re.fullmatch(r"(?i)unlock(ed)?|no\s*lock|out\s*of\s*lock|loss\s*of\s*lock", s) is not None for s in labels]
+        is_lock = [re.fullmatch(r"(?i)lock(ed)?", s) is not None for s in labels]
+        if len(labels) == 2 and all(u or l for u, l in zip(is_unlock, is_lock)) and any(is_lock) and any(is_unlock):
+            values = np.array([0.0 if u else 1.0 for u in is_unlock])
+        nearest = np.abs(df["y_px"].to_numpy(dtype=float)[:, None] - levels[None, :]).argmin(axis=1)
+        df[colname] = values[nearest]
+        df[f"{colname}_state"] = [labels[i] for i in nearest]
         return df
 
     if "lock" in colname.lower() and not df.empty:
@@ -1143,6 +1193,11 @@ def collect_polar_plot_series(section_frames: dict, selectors, source_label=None
             if len(lock_vals):
                 unlock_mask = np.isfinite(lock_vals) & (np.rint(lock_vals).astype(int) == 0)
         az_vals, el_vals, metric_vals = az_vals[valid], el_vals[valid], metric_vals[valid]
+        # Keep lock arrays aligned with the samples even when no lock chart
+        # exists, so combined plots can concatenate them across files.
+        if lock_vals is None or len(lock_vals) != len(az_vals):
+            lock_vals = np.full(len(az_vals), np.nan)
+            unlock_mask = np.zeros(len(az_vals), dtype=bool)
         if len(az_vals) < 3:
             logger.warning("Polar/3D plot '%s' skipped: insufficient valid angle samples", metric_col)
             continue
@@ -1154,8 +1209,8 @@ def collect_polar_plot_series(section_frames: dict, selectors, source_label=None
             "azimuth": az_vals,
             "elevation": el_vals,
             "metric": metric_vals,
-            "lock_state": lock_vals if lock_vals is not None else np.array([], dtype=float),
-            "unlock_mask": unlock_mask if unlock_mask is not None else np.array([], dtype=bool),
+            "lock_state": lock_vals,
+            "unlock_mask": unlock_mask,
             "point_source": point_source,
             "track_az": np.mod(track_az, 360.0),
             "track_el": track_el,
@@ -1528,7 +1583,7 @@ def _numeric_tick_groups(ticks: pd.DataFrame):
     num = ticks[ticks.get("kind") == "num"].copy()
     if num.empty:
         return []
-    num["val"] = num["text"].apply(lambda t: float(re.sub(r"[^0-9+\-.,]", "", str(t)).replace(",", ".")))
+    num["val"] = num["text"].apply(parse_tick_value)
     num = num.dropna(subset=["x_px", "y_px", "val"])
     if len(num) < 2:
         return [num]
@@ -1563,7 +1618,7 @@ def _tick_group_minmax(tick_group: pd.DataFrame):
         return None, None
     grp = tick_group.copy()
     if "val" not in grp:
-        grp["val"] = grp["text"].apply(lambda t: float(re.sub(r"[^0-9+\-.,]", "", str(t)).replace(",", ".")))
+        grp["val"] = grp["text"].apply(parse_tick_value)
     vals = pd.to_numeric(grp["val"], errors="coerce").dropna()
     if vals.empty:
         return None, None
@@ -1681,7 +1736,7 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
             series_name, raw_df, ticks = curve
             series_color = None
         base_curve = _sanitize_curve_timebase(raw_df.copy())
-        base = map_x_to_time(base_curve, start_dt, stop_dt)
+        base = map_x_to_time(base_curve, start_dt, stop_dt, ticks)
         if base.empty:
             continue
 
@@ -1695,7 +1750,7 @@ def build_antenna_combined_df(ycol, curves, start_dt, stop_dt):
         # candidate 1: all numeric ticks together
         all_num = ticks[ticks.get("kind") == "num"].copy() if ticks is not None and not ticks.empty else pd.DataFrame()
         if not all_num.empty and not explicit_series_axis:
-            all_num["val"] = all_num["text"].apply(lambda t: float(re.sub(r"[^0-9+\-.,]", "", str(t)).replace(",", ".")))
+            all_num["val"] = all_num["text"].apply(parse_tick_value)
             all_num = all_num.dropna(subset=["x_px", "y_px", "val"])
             if len(all_num) >= 2:
                 dfa = _map_curve_with_ticks_group(base, all_num, f"value_{idx}_all")
@@ -1922,21 +1977,19 @@ def process_html(
         title = hdr.get_text(" ", strip=True)
         if not title:
             continue
-        cur = hdr
-        has_chart = False
-        while True:
-            cur = cur.find_next_sibling()
-            if cur is None or cur.name in ("h2", "h3"):
-                break
-            if cur.find("svg") or cur.find("object", type="image/svg+xml"):
-                has_chart = True
-                break
-        if not has_chart:
+        # Only charts placed before the next h2/h3 belong to this section
+        # (a parent h2 must not inherit the charts of its h3 subsections).
+        if not collect_section_svgs(hdr, load_objects=False):
             continue
         key = re.sub(r"\W+", "_", title.lower()).strip("_") or "section"
         EXCLUDE = {"session", "activities", "channel"}
         if key in EXCLUDE or any(key.endswith(f"_{e}") for e in EXCLUDE):
             continue
+        if key in (k for _, k in targets):
+            n = 2
+            while f"{key}_{n}" in (k for _, k in targets):
+                n += 1
+            key = f"{key}_{n}"
         targets.append((hdr, key))
 
     # Nome file in base a (prefix, orbit_no) trovati nell'HTML
@@ -1951,6 +2004,18 @@ def process_html(
     # writer: salva sempre in .xlsx
     out_path = output_dir / (base + ".xlsx")
     section_frames = {}
+    used_sheets = set()
+
+    def unique_sheet(name):
+        """Excel sheet name (max 31 chars) not already used in this workbook."""
+        sheet = safe_sheet_name(name)
+        n = 2
+        while sheet.lower() in used_sheets:
+            suffix = f"~{n}"
+            sheet = safe_sheet_name(name)[: 31 - len(suffix)] + suffix
+            n += 1
+        used_sheets.add(sheet.lower())
+        return sheet
     with pd.ExcelWriter(out_path, engine="openpyxl") as wr:
         # Meta
         pd.DataFrame([
@@ -1959,23 +2024,25 @@ def process_html(
                 "stop_time_utc": stop_dt.strftime("%Y-%m-%d %H:%M:%S") if stop_dt else None,
                 "report_time_utc": rep_dt.strftime("%Y-%m-%d %H:%M:%S") if rep_dt else None,
             }
-        ]).to_excel(wr, sheet_name="__meta__", index=False)
+        ]).to_excel(wr, sheet_name=unique_sheet("__meta__"), index=False)
 
         # Per ogni sezione, estrai e salva in un foglio
         def write_section(sheet_key, df, ticks):
-            df = map_x_to_time(df, start_dt, stop_dt)
+            df = map_x_to_time(df, start_dt, stop_dt, ticks)
             df = map_y_from_ticks(df, ticks, colname=sheet_key)
             section_frames[sheet_key] = df.copy()
 
             cols = ["x_px", "y_px", "t_sec_rel", "time_HH:MM:SS", "time_iso_utc", sheet_key]
+            if f"{sheet_key}_state" in df:
+                cols.append(f"{sheet_key}_state")
             df = df.reindex(cols, axis=1)
-            sheet = safe_sheet_name(sheet_key)
+            sheet = unique_sheet(sheet_key)
             if df.empty:
                 pd.DataFrame([{"note": "nessun dato estratto"}]).to_excel(wr, sheet_name=sheet, index=False)
             else:
                 df.to_excel(wr, sheet_name=sheet, index=False)
 
-            tname = safe_sheet_name(sheet_key + "_ticks")
+            tname = unique_sheet(sheet_key + "_ticks")
             (ticks if not ticks.empty else pd.DataFrame([{"note": "no ticks"}])).to_excel(
                 wr, sheet_name=tname, index=False
             )
@@ -1983,26 +2050,23 @@ def process_html(
         for hdr, ycol in targets:
             is_antenna = any(k in ycol.lower() for k in ("antenna", "azimuth", "elevation"))
             if is_antenna:
-                multi = extract_curves_for_header(hdr)
+                multi = extract_curves_for_header(hdr, html.parent)
                 combined = build_antenna_combined_df(ycol, multi, start_dt, stop_dt) if multi else None
                 if combined is not None:
                     section_frames[f"{ycol}_azimuth"] = combined[["t_sec_rel", f"{ycol}_azimuth"]].copy()
                     section_frames[f"{ycol}_elevation"] = combined[["t_sec_rel", f"{ycol}_elevation"]].copy()
-                    sheet = safe_sheet_name(ycol)
+                    sheet = unique_sheet(ycol)
                     combined.to_excel(wr, sheet_name=sheet, index=False)
                     # Save ticks of first detected curve as reference for this combined sheet
-                    tname = safe_sheet_name(ycol + "_ticks")
+                    tname = unique_sheet(ycol + "_ticks")
                     ref_ticks = multi[0][2] if multi else pd.DataFrame([{"note": "no ticks"}])
                     (ref_ticks if not ref_ticks.empty else pd.DataFrame([{"note": "no ticks"}])).to_excel(
                         wr, sheet_name=tname, index=False
                     )
                     continue
 
-            df, ticks = extract_curve_for_header(hdr)
+            df, ticks = extract_curve_for_header(hdr, html.parent)
             write_section(ycol, df, ticks)
-    wb = wr.book
-    if "Sheet" in wb.sheetnames:
-        wb.remove(wb["Sheet"])
 
     if stats_rows is not None:
         stats_rows.extend(summarize_selected_stats(orbit_no, section_frames, stats_selectors))

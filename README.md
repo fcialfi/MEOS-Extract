@@ -42,6 +42,11 @@ Un'interfaccia Tkinter è disponibile per elaborare più cartelle.
 8. Se sono abilitati i plot, vengono creati PNG polari **e 3D sferici (cupola del cielo con antenna al centro)** e, se `plotly` è disponibile, anche versioni HTML interattive con hover che mostrano orbita, azimuth, elevation e valore della metrica. Viene inoltre salvato un indice `polar_plots_index.xlsx`.
 9. La GUI richiede `tkinter`. Se non è già presente, installarlo come indicato nella sezione *Dipendenze*.
 
+Note sui dati estratti:
+- L'asse tempo è ricavato dalle etichette orarie del grafico (HH:MM), quindi `t_sec_rel` è in secondi da *Start time* ed è coerente tra tutte le sezioni.
+- I grafici di stato (es. FEP Lock State: Idle/Search/Check/Lock/...) hanno come valore l'indice del livello dal basso (0, 1, 2, ...) e una colonna aggiuntiva `<sezione>_state` con il nome dello stato; per `demodulator_lock_state` resta 0 = unlocked, 1 = locked.
+- Per i grafici con più serie viene estratta una sola curva (quella con più punti nell'area del grafico).
+
 I log dell'applicazione sono salvati nel file `gui_app.log` nella stessa directory dello script. Se il file non è scrivibile, i messaggi vengono mostrati solo in console.
 
 ## File di licenza
