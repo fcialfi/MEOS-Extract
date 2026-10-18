@@ -287,6 +287,8 @@ def setup_style(root):
               background=[("disabled", "#F8FAFC"), ("pressed", "#E2E8F0"), ("active", "#E2E8F0")],
               foreground=[("disabled", "#A0AEC0")])
 
+    style.configure("Small.TButton", padding=(10, 3))
+
     style.configure("Accent.TButton", padding=(18, 10), background=ACCENT, foreground="#FFFFFF",
                     bordercolor=ACCENT, lightcolor=ACCENT, darkcolor=ACCENT, focuscolor=ACCENT,
                     font=(family, 11, "bold"))
@@ -355,6 +357,7 @@ class App:
         self.worker = None
         self.stop_event = threading.Event()
         self.started_at = None
+        self.results_dir = None
         self.lockable = []
 
         self.family = setup_style(root)
@@ -511,13 +514,19 @@ class App:
             self.mode_checks.append(cb)
 
         ttk.Separator(body).pack(fill="x", pady=7)
-        ttk.Label(body, text="ANALISI MULTI-ORBITA", style="Section.TLabel").pack(anchor="w")
-        cb = ttk.Checkbutton(body, text="SNR vs elevazione per gruppi (ciclo di 9 giorni)",
+        ttk.Label(body, text=f"ANALISI MULTI-ORBITA  ·  → {DEFAULT_OUTPUT_NAME}",
+                  style="Section.TLabel").pack(anchor="w")
+        multi_row = ttk.Frame(body, style="Inner.TFrame")
+        multi_row.pack(fill="x", pady=(4, 0))
+        cb = ttk.Checkbutton(multi_row, text="Dopo l'elaborazione",
                              variable=self.multi_orbit_var, style="Card.TCheckbutton")
-        cb.pack(anchor="w", pady=(4, 0))
-        ttk.Label(body, text=f"→ {DEFAULT_OUTPUT_NAME} (tutti gli Excel in output)",
-                  style="Muted.TLabel").pack(anchor="w", padx=(24, 0))
-        self.lockable.append(cb)
+        cb.pack(side="left")
+        # Analyse any folder of Excel files already extracted (older runs,
+        # other campaigns) without processing HTML reports first.
+        btn = ttk.Button(multi_row, text="Analizza Excel già estratti…", style="Small.TButton",
+                         command=self.start_analysis)
+        btn.pack(side="right")
+        self.lockable.extend([cb, btn])
         return outer
 
     def _build_run(self, parent):
@@ -635,7 +644,7 @@ class App:
             self.output_entry.xview_moveto(1.0)
 
     def open_output(self):
-        out = self.output_var.get().strip()
+        out = str(self.results_dir) if self.results_dir else self.output_var.get().strip()
         if out and Path(out).is_dir():
             open_path(Path(out))
         else:
@@ -679,6 +688,7 @@ class App:
             return
 
         self._save_settings()
+        self.results_dir = Path(output)
         self.stop_event.clear()
         self.progress.configure(value=0, maximum=1)
         self.btn_open_out.state(["disabled"])
@@ -703,6 +713,63 @@ class App:
 
         self.worker = threading.Thread(target=work, daemon=True)
         self.worker.start()
+
+    def start_analysis(self):
+        """Multi-orbit analysis of a folder of already extracted Excel files."""
+        if self._running():
+            return
+        initial = self.output_var.get().strip() or None
+        folder = filedialog.askdirectory(
+            title="Seleziona la cartella con gli Excel estratti da MEOS", mustexist=True, initialdir=initial,
+        )
+        if not folder:
+            return
+        folder = Path(folder)
+        if not any(folder.glob("*.xls*")):
+            messagebox.showwarning("MEOS Extract", f"Nessun file Excel in {folder}.")
+            return
+
+        self._save_settings()
+        self.results_dir = folder
+        self.btn_open_out.state(["disabled"])
+        self.status_label.configure(style="Status.TLabel")
+        self.status_var.set(f"Analisi multi-orbita di {folder.name}…")
+        self.started_at = time.monotonic()
+        self._set_running(True)
+        self.btn_stop.state(["disabled"])  # a single analysis step cannot be interrupted
+        self.progress.configure(mode="indeterminate")
+        self.progress.start(12)
+        logging.info("Analisi multi-orbita degli Excel in %s", folder)
+
+        def work():
+            try:
+                result, error = run_analysis(folder, folder / DEFAULT_OUTPUT_NAME), None
+            except ValueError as exc:
+                logging.error("%s", exc)
+                result, error = None, "nessun Excel MEOS valido"
+            except Exception as exc:
+                logging.exception("Analisi multi-orbita non riuscita")
+                result, error = None, str(exc)
+            self.queue.put(("analysis_done", result, error))
+
+        self.worker = threading.Thread(target=work, daemon=True)
+        self.worker.start()
+
+    def _finish_analysis(self, result, error):
+        self.progress.stop()
+        self.progress.configure(mode="determinate", maximum=1, value=1)
+        self._set_running(False)
+        elapsed = time.monotonic() - (self.started_at or time.monotonic())
+        if error:
+            self.status_label.configure(style="StatusErr.TLabel")
+            self.status_var.set(f"Analisi fallita: {error}")
+            return
+        self.status_label.configure(style="StatusOk.TLabel")
+        self.status_var.set(
+            f"✓ Analisi: {len(result['orbits'])} orbite, {result['groups']} gruppi ({elapsed:.0f}s)"
+        )
+        logging.info("Salvata analisi multi-orbita: %s", result["output"])
+        self.btn_open_out.state(["!disabled"])
 
     def stop(self):
         if self._running():
@@ -746,6 +813,8 @@ class App:
                         self.status_var.set(f"Report {done + 1} di {total} · {Path(report).name}")
                 elif kind == "done":
                     self._finish(msg[1])
+                elif kind == "analysis_done":
+                    self._finish_analysis(msg[1], msg[2])
         except queue.Empty:
             pass
         self.root.after(100, self._poll_queue)
