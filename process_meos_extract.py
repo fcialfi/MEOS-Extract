@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 import pandas as pd
+from openpyxl import load_workbook
 from openpyxl.chart import ScatterChart, Series, Reference
 from openpyxl.chart.series import SeriesLabel
 from openpyxl.styles import Alignment
@@ -27,76 +28,122 @@ def _open_excel(path: Path) -> pd.ExcelFile:
         raise
 
 
-def _load_sheet(path: Path, sheet_name: str) -> pd.DataFrame:
+SNR_COL = "5_10_signal_noise_ratio"
+AZ_COL = "6_1_azimuth"
+EL_COL = "6_2_elevation"
+TIME_COL = "time_iso_utc"
+
+# Column patterns used to find each series in a MEOS Extract workbook. Older
+# reports have separate "6_1_azimuth"/"6_2_elevation" sheets, newer ones a
+# single antenna sheet with "<section>_azimuth"/"<section>_elevation" columns.
+# Section numbers change between report versions, so match by suffix.
+SERIES_PATTERNS = {
+    SNR_COL: re.compile(r"(signal_?noise_?ratio|(^|_)snr)$", re.IGNORECASE),
+    AZ_COL: re.compile(r"azimuth$", re.IGNORECASE),
+    EL_COL: re.compile(r"elevation$", re.IGNORECASE),
+}
+
+
+def _sheet_headers(path: Path) -> Dict[str, List[str]]:
+    """First-row headers of every worksheet, read once per file."""
+    workbook = load_workbook(path, read_only=True)
+    try:
+        headers = {}
+        for ws in workbook.worksheets:
+            first = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), ())
+            headers[ws.title] = [str(v) for v in first if v is not None]
+        return headers
+    finally:
+        workbook.close()
+
+
+def _find_series(path: Path, headers: Dict[str, List[str]], key: str) -> Tuple[str, str]:
+    """Return (sheet, column) holding the series *key* (SNR, azimuth or elevation)."""
+    if key in headers.get(key, []):
+        return key, key
+    pattern = SERIES_PATTERNS[key]
+    matches = []
+    for sheet, cols in headers.items():
+        if sheet == "__meta__" or sheet.endswith(("_ticks", "_tick")):
+            continue
+        if TIME_COL not in cols:
+            continue
+        for col in cols:
+            if pattern.search(col):
+                matches.append((sheet, col))
+    if not matches:
+        raise ValueError(
+            f"No '{key}' series found in {path.name}. "
+            f"Available worksheets: {', '.join(headers) or 'None'}."
+        )
+    if len(matches) > 1:
+        print(f"Warning: several candidates for '{key}' in {path.name}: {matches}; using {matches[0]}.")
+    return matches[0]
+
+
+def _load_series(path: Path, excel: pd.ExcelFile, sheet: str, column: str, key: str) -> pd.DataFrame:
+    df = pd.read_excel(excel, sheet_name=sheet)
+    if df.empty or column not in df.columns or TIME_COL not in df.columns:
+        print(f"Warning: sheet '{sheet}' in {path.name} has no '{column}' data; skipping data.")
+        return pd.DataFrame(columns=[TIME_COL, key])
+    data = df[[TIME_COL, column]].rename(columns={column: key})
+    data[TIME_COL] = pd.to_datetime(data[TIME_COL], errors="coerce", utc=True)
+    data[key] = pd.to_numeric(data[key], errors="coerce")
+    data = data.dropna().copy()
+    data[TIME_COL] = data[TIME_COL].dt.floor("s")
+    data = data.sort_values(TIME_COL)
+    data = data.drop_duplicates(subset=[TIME_COL], keep="first")
+    return data.reset_index(drop=True)
+
+
+def _process_file(path: Path, match_tolerance_s: float = 2.0) -> pd.DataFrame:
     excel = _open_excel(path)
-    resolved_sheet = sheet_name
-    if sheet_name not in excel.sheet_names:
-        matching_sheets = []
-        for candidate in excel.sheet_names:
-            preview = pd.read_excel(excel, sheet_name=candidate, nrows=0)
-            if sheet_name in preview.columns:
-                matching_sheets.append(candidate)
-        if len(matching_sheets) == 1:
-            resolved_sheet = matching_sheets[0]
-        else:
-            available = ", ".join(excel.sheet_names)
-            if matching_sheets:
-                matches = ", ".join(matching_sheets)
-                raise ValueError(
-                    f"Worksheet named '{sheet_name}' not found in {path}. "
-                    f"Multiple worksheets contain '{sheet_name}': {matches}."
-                )
-            raise ValueError(
-                f"Worksheet named '{sheet_name}' not found in {path}. "
-                f"Available worksheets: {available or 'None'}."
-            )
-    time_col = "time_iso_utc"
-    df = pd.read_excel(excel, sheet_name=resolved_sheet)
-    if df.empty:
-        print(f"Warning: sheet '{sheet_name}' in {path} is empty; skipping data.")
-        empty_frame = pd.DataFrame(columns=[time_col, sheet_name])
-        return empty_frame
-    if time_col not in df.columns:
-        raise ValueError(
-            f"Sheet '{sheet_name}' in {path} is missing required '{time_col}' column."
+    headers = _sheet_headers(path)
+    series = {key: _load_series(path, excel, *_find_series(path, headers, key), key) for key in SERIES_PATTERNS}
+
+    # Antenna and SNR curves are sampled at different instants: pair each SNR
+    # sample with the nearest azimuth/elevation sample instead of requiring
+    # identical timestamps (which silently dropped rows).
+    merged = series[SNR_COL]
+    for key in (AZ_COL, EL_COL):
+        if merged.empty or series[key].empty:
+            merged = merged.iloc[0:0].assign(**{key: pd.Series(dtype=float)})
+            continue
+        merged = pd.merge_asof(
+            merged, series[key], on=TIME_COL, direction="nearest",
+            tolerance=pd.Timedelta(seconds=match_tolerance_s),
         )
-    if sheet_name not in df.columns:
-        raise ValueError(
-            f"Sheet '{resolved_sheet}' in {path} is missing required '{sheet_name}' column."
-        )
-    data = df[[time_col, sheet_name]].copy()
-    data[time_col] = pd.to_datetime(data[time_col], errors="coerce", utc=True)
-    data = data.dropna(subset=[time_col]).copy()
-    data[time_col] = data[time_col].dt.floor("s")
-    data = data.sort_values(time_col)
-    data = data.drop_duplicates(subset=[time_col], keep="first")
-    return data
-
-
-def _process_file(path: Path) -> pd.DataFrame:
-    snr = _load_sheet(path, "5_10_signal_noise_ratio")
-    azimuth = _load_sheet(path, "6_1_azimuth")
-    elevation = _load_sheet(path, "6_2_elevation")
-
-    merged = snr.merge(azimuth, on="time_iso_utc", how="inner").merge(
-        elevation, on="time_iso_utc", how="inner"
-    )
+    merged = merged.dropna(subset=[SNR_COL, AZ_COL, EL_COL])
+    merged = merged[[TIME_COL, SNR_COL, AZ_COL, EL_COL]].copy()
     merged["orbit"] = _extract_orbit(path)
-    merged = merged.sort_values("time_iso_utc")
+    merged = merged.sort_values(TIME_COL).reset_index(drop=True)
     return _trim_final_high_elevation(merged)
 
 
 def _trim_final_high_elevation(
     frame: pd.DataFrame, threshold: float = 5.0
 ) -> pd.DataFrame:
+    """Drop trailing samples after the pass (antenna moving back to its park position).
+
+    The frame is cut after the last sample at or below *threshold*. This is
+    done only when that sample lies in the second half of the pass: a pass
+    that ends above the threshold is kept whole instead of being truncated
+    to its first few samples.
+    """
     if frame.empty:
         return frame
-    elevation = pd.to_numeric(frame["6_2_elevation"], errors="coerce")
-    valid_mask = elevation <= threshold
-    if not valid_mask.any():
+    elevation = pd.to_numeric(frame[EL_COL], errors="coerce").reset_index(drop=True)
+    low = elevation.index[elevation <= threshold]
+    if len(low) == 0:
         return frame.iloc[0:0].copy()
-    last_valid_index = valid_mask[valid_mask].index[-1]
-    return frame.loc[:last_valid_index].copy()
+    last_low = int(low[-1])
+    if last_low < len(elevation) // 2:
+        print(
+            f"Warning: orbit {frame['orbit'].iloc[0]} ends above {threshold} deg elevation; "
+            "trailing samples not trimmed."
+        )
+        return frame
+    return frame.iloc[: last_low + 1].copy()
 
 
 def _extract_start_time(path: Path) -> pd.Timestamp:
@@ -352,6 +399,74 @@ def _add_group_chart_sheet(
     chart_sheet.add_chart(descending_chart, "A20")
 
 
+def _group_by_repeat_cycle(
+    items: List[Tuple[pd.DataFrame, pd.Timestamp]],
+    period: pd.Timedelta,
+    tolerance: pd.Timedelta,
+) -> List[List[Tuple[pd.DataFrame, pd.Timestamp]]]:
+    """Group passes that fall in the same slot of the ground-track repeat cycle.
+
+    Each pass gets a phase = (start - first start) mod *period*. Passes whose
+    phases are within *tolerance* of each other (also across the cycle
+    boundary) form one group, so passes a few minutes apart are no longer
+    split just because they straddle an hour boundary.
+    """
+    if not items:
+        return []
+    origin = min(start for _, start in items)
+    phased = sorted(
+        (((start - origin) % period, frame, start) for frame, start in items),
+        key=lambda entry: (entry[0], entry[2]),
+    )
+    groups: List[List[Tuple[pd.Timedelta, pd.DataFrame, pd.Timestamp]]] = [[phased[0]]]
+    for entry in phased[1:]:
+        if entry[0] - groups[-1][-1][0] <= tolerance:
+            groups[-1].append(entry)
+        else:
+            groups.append([entry])
+    if len(groups) > 1 and groups[0][0][0] + period - groups[-1][-1][0] <= tolerance:
+        groups[0] = groups.pop() + groups[0]
+    return [
+        sorted(((frame, start) for _, frame, start in group), key=lambda item: item[1])
+        for group in groups
+    ]
+
+
+def _frames_from_existing_output(output_path: Path) -> List[Tuple[pd.DataFrame, pd.Timestamp]]:
+    """Rebuild per-orbit frames from the "Group N" sheets of a previous output.
+
+    Only the data block is read (it ends at the first empty row, before the
+    correlation table); helper and chart columns are ignored.
+    """
+    items: List[Tuple[pd.DataFrame, pd.Timestamp]] = []
+    sheets = pd.read_excel(output_path, sheet_name=None, header=1)
+    for sheet_name, df in sheets.items():
+        if not re.fullmatch(r"Group \d+", sheet_name) or df.empty:
+            continue
+        empty_rows = df.index[df.isna().all(axis=1)]
+        if len(empty_rows):
+            df = df.loc[: empty_rows[0] - 1]
+        orbits = sorted({
+            int(m.group(1))
+            for col in df.columns
+            if (m := re.fullmatch(r"Orbit (\d+) time_iso_utc", str(col)))
+        })
+        for orbit in orbits:
+            cols = {key: f"Orbit {orbit} {key}" for key in (TIME_COL, AZ_COL, EL_COL, SNR_COL)}
+            if not all(c in df.columns for c in cols.values()):
+                continue
+            frame = df[list(cols.values())].rename(columns={v: k for k, v in cols.items()})
+            frame[TIME_COL] = pd.to_datetime(frame[TIME_COL], errors="coerce", utc=True)
+            for key in (AZ_COL, EL_COL, SNR_COL):
+                frame[key] = pd.to_numeric(frame[key], errors="coerce")
+            frame = frame.dropna().reset_index(drop=True)
+            if frame.empty:
+                continue
+            frame["orbit"] = orbit
+            items.append((frame[[TIME_COL, SNR_COL, AZ_COL, EL_COL, "orbit"]], frame[TIME_COL].min()))
+    return items
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -383,6 +498,23 @@ def main() -> int:
         default=0.1,
         help="Tolerance (degrees) for matching elevation values between orbits.",
     )
+    parser.add_argument(
+        "--repeat-days",
+        type=float,
+        default=9.0,
+        help="Ground-track repeat cycle in days used to group passes (default: 9).",
+    )
+    parser.add_argument(
+        "--group-tolerance-min",
+        type=float,
+        default=30.0,
+        help="Max difference (minutes) within the repeat cycle for passes of the same group.",
+    )
+    parser.add_argument(
+        "--replace",
+        action="store_true",
+        help="Ignore an existing output file instead of adding its orbits to the new one.",
+    )
     args = parser.parse_args()
 
     folder = Path(args.folder).resolve()
@@ -399,33 +531,51 @@ def main() -> int:
     if not excel_files:
         raise SystemExit(f"No Excel files found in {folder}")
 
-    processed_frames: List[Tuple[pd.DataFrame, pd.Timestamp, pd.Timestamp]] = []
+    processed: Dict[int, Tuple[pd.DataFrame, pd.Timestamp]] = {}
+    skipped: List[str] = []
     for path in sorted(excel_files):
         print(f"Processing Excel file: {path.name}")
-        frame = _process_file(path)
-        start_time = _extract_start_time(path)
-        group_time = start_time.floor("h")
-        processed_frames.append((frame, start_time, group_time))
+        try:
+            frame = _process_file(path)
+            start_time = _extract_start_time(path)
+        except ValueError as exc:
+            # Other workbooks in the folder (statistics, plot index, ...)
+            # are not MEOS Extract exports: skip them instead of aborting.
+            print(f"Warning: skipping {path.name}: {exc}")
+            skipped.append(path.name)
+            continue
+        if frame.empty:
+            print(f"Warning: skipping {path.name}: no SNR samples matched with azimuth/elevation.")
+            skipped.append(path.name)
+            continue
+        orbit = int(frame["orbit"].iloc[0])
+        if orbit in processed:
+            print(f"Warning: orbit {orbit} found in more than one file; using {path.name}.")
+        processed[orbit] = (frame, start_time)
 
-    existing_sheets: Dict[str, pd.DataFrame] = {}
-    if output_path.exists():
-        existing_sheets = pd.read_excel(output_path, sheet_name=None, header=1)
+    if output_path.exists() and not args.replace:
+        kept = 0
+        for frame, start_time in _frames_from_existing_output(output_path):
+            orbit = int(frame["orbit"].iloc[0])
+            if orbit not in processed:
+                processed[orbit] = (frame, start_time)
+                kept += 1
+        if kept:
+            print(f"Kept {kept} orbit(s) from existing {output_path.name}")
 
-    origin = min(group_time for _, _, group_time in processed_frames)
-    nine_days = pd.Timedelta(days=9)
-    grouped_frames: Dict[int, List[Tuple[pd.DataFrame, pd.Timestamp]]] = {}
-    for frame, start_time, group_time in processed_frames:
-        remainder = (group_time - origin) % nine_days
-        key = int(remainder.total_seconds())
-        grouped_frames.setdefault(key, []).append((frame, start_time))
+    if not processed:
+        raise SystemExit(f"No usable MEOS Extract files found in {folder}")
+
+    groups = _group_by_repeat_cycle(
+        list(processed.values()),
+        pd.Timedelta(days=args.repeat_days),
+        pd.Timedelta(minutes=args.group_tolerance_min),
+    )
 
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-        for idx, key in enumerate(sorted(grouped_frames)):
+        for idx, group_items in enumerate(groups):
             sheet_name = f"Group {idx + 1}"
-            group_items = sorted(grouped_frames[key], key=lambda item: item[1])
-            output_frame = existing_sheets.get(sheet_name)
-            if output_frame is not None:
-                output_frame = output_frame.reset_index(drop=True)
+            output_frame = None
             for frame, _ in group_items:
                 orbit = int(frame["orbit"].iloc[0])
                 columns = [
@@ -536,8 +686,12 @@ def main() -> int:
                 chart_anchor = f"A{data_end_row + 2}"
                 worksheet.add_chart(chart, chart_anchor)
 
-    total_rows = sum(len(frame) for frame, _, _ in processed_frames)
-    print(f"Saved {total_rows} rows to {output_path}")
+    total_rows = sum(len(frame) for frame, _ in processed.values())
+    print(
+        f"Saved {len(processed)} orbit(s), {total_rows} rows, {len(groups)} group(s) to {output_path}"
+    )
+    if skipped:
+        print(f"Skipped {len(skipped)} file(s): {', '.join(skipped)}")
     return 0
 
 
