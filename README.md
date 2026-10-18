@@ -22,23 +22,25 @@ pip install beautifulsoup4 pandas numpy openpyxl
 
 ## Interfaccia grafica
 
+L'interfaccia è in inglese; qui sotto i nomi dei pulsanti sono riportati come appaiono nella finestra.
+
 Avvio:
 ```bash
 python gui_app.py
 ```
 
-1. **Cartelle di input**: *+ Aggiungi cartella* aggiunge una cartella con i report `*.html`;
-   *Aggiungi sottocartelle…* scansiona una cartella padre e aggiunge tutte le sottocartelle che contengono report.
+1. **Input folders**: *+ Add folder* aggiunge una cartella con i report `*.html`;
+   *Add subfolders…* scansiona una cartella padre e aggiunge tutte le sottocartelle che contengono report.
    Per ogni cartella viene mostrato il numero di report trovati (in rosso se nessuno).
-   *Rimuovi* (o tasto Canc) e *Svuota* gestiscono la lista; doppio clic apre la cartella.
-2. **Cartella di output**: *Sfoglia…* per sceglierla, *Apri* per aprirla nel file manager.
-3. **Opzioni** (facoltative):
-   - *Conta gli unlock del demodulatore*: conta gli eventi di unlock interni al pass (pattern stabile `1→0→1`) e crea `lock_state_stats.xlsx` (colonne `Orbit Number` e `Unlocks`).
-   - *Plot polari / 3D* per Input Level, Eb/N0 e Signal/Noise Ratio: grafici polari e 3D sferici (cupola del cielo con antenna al centro) colorati rispetto ad azimuth/elevation; nel plot SNR i campioni con `demodulator_lock_state = 0` sono evidenziati in viola. Se `plotly` è installato vengono create anche versioni HTML interattive con hover (orbita, azimuth, elevation, valore). Viene salvato un indice `polar_plots_index.xlsx`.
-   - *Modalità plot*: un set per ogni report e/o un set combinato per tutti i report.
-   - *Analisi multi-orbita → Dopo l'elaborazione*: a fine elaborazione crea `meos_processed.xlsx` nella cartella di output usando **tutti** gli Excel MEOS presenti, anche quelli di esecuzioni precedenti (vedi *Analisi multi-orbita* sotto).
-   - *Analizza Excel già estratti…*: esegue subito l'analisi multi-orbita su una cartella qualsiasi di Excel già estratti (vecchie campagne, file ricevuti da altri), senza elaborare report HTML; `meos_processed.xlsx` viene salvato in quella cartella.
-4. **Avvia elaborazione** (o Ctrl+Invio): l'elaborazione gira in background, con barra di avanzamento e stato; *Stop* interrompe dopo il report corrente. Un report con errori viene segnalato e saltato senza fermare gli altri. A fine elaborazione *Apri risultati* apre la cartella di output.
+   *Remove* (o tasto Canc) e *Clear* gestiscono la lista; doppio clic apre la cartella.
+2. **Output folder**: *Browse…* per sceglierla, *Open* per aprirla nel file manager.
+3. **Options** (facoltative):
+   - *Count demodulator unlocks*: conta gli eventi di unlock interni al pass (pattern stabile `1→0→1`) e crea `lock_state_stats.xlsx` (colonne `Orbit Number` e `Unlocks`).
+   - *Polar / 3D plots* per Input Level, Eb/N0 e Signal/Noise Ratio: grafici polari e 3D sferici (cupola del cielo con antenna al centro) colorati rispetto ad azimuth/elevation; nel plot SNR i campioni con `demodulator_lock_state = 0` sono evidenziati in viola. Se `plotly` è installato vengono create anche versioni HTML interattive con hover (orbita, azimuth, elevation, valore). Viene salvato un indice `polar_plots_index.xlsx`.
+   - *Plot mode*: *One set per report* e/o *Combined (all reports)*.
+   - *Multi-orbit analysis → After processing*: a fine elaborazione crea `meos_processed.xlsx` nella cartella di output usando **tutti** gli Excel MEOS presenti, anche quelli di esecuzioni precedenti (vedi *Analisi multi-orbita* sotto).
+   - *Analyse existing Excel files…*: esegue subito l'analisi multi-orbita su una cartella qualsiasi di Excel già estratti (vecchie campagne, file ricevuti da altri), senza elaborare report HTML; `meos_processed.xlsx` viene salvato in quella cartella.
+4. **Run** (o Ctrl+Invio): l'elaborazione gira in background, con barra di avanzamento e stato; *Stop* interrompe dopo il report corrente. Un report con errori viene segnalato e saltato senza fermare gli altri. A fine elaborazione *Open results* apre la cartella di output.
 
 Il log è mostrato a colori nella finestra (avvisi in giallo, errori in rosso) ed è salvato anche in `gui_app.log` nella cartella dello script.
 Cartelle e opzioni vengono ricordate tra un avvio e l'altro (`~/.meos_extract_gui.json`).

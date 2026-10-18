@@ -195,9 +195,9 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
 - **{App.__init__}:** Window setup, Tk variables restored from the saved settings, layout, log handler and the 100 ms queue poll.
 - **{App._build}:** Header plus a two-column grid: inputs and output on the left, options and run panel on the right, log at the bottom.
 - **{App._build_inputs}:** Treeview of input folders (full path as item id, shortened path and report count shown; folders without reports in red) and its buttons; Delete/BackSpace remove, double-click opens.
-- **{App._build_output}:** Output folder entry with *Sfoglia…* and *Apri*.
-- **{App._build_options}:** Statistics, polar/3D plot metrics, plot modes and the multi-orbit section (*Dopo l'elaborazione* checkbox and *Analizza Excel già estratti…* button).
-- **{App._build_run}:** *Avvia elaborazione*, *Stop*, progress bar, status line and *Apri risultati*.
+- **{App._build_output}:** Output folder entry with *Browse…* and *Open*.
+- **{App._build_options}:** Statistics, polar/3D plot metrics, plot modes and the multi-orbit section (*After processing* checkbox and *Analyse existing Excel files…* button).
+- **{App._build_run}:** *Run*, *Stop*, progress bar, status line and *Open results*.
 - **{App._build_log}:** Dark log panel with colour tags per level.
 - **{App._folders}** to **{App._open_tree_item}:** Input list management: add one folder, scan a parent folder for subfolders with reports, remove, clear, zebra striping and the counter in the card header.
 - **{App.select_output}**, **{App.open_output}:** Choose and open the output (or last results) folder.

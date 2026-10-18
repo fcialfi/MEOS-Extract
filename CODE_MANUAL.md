@@ -1974,7 +1974,7 @@ them to values with linear fits on the tick positions.
   1942	            html = alt
   1943	        else:
   1944	            raise FileNotFoundError(
-  1945	                f"File HTML non trovato: {html_path} (cwd) o {alt} (script dir)"
+  1945	                f"HTML file not found: {html_path} (cwd) or {alt} (script dir)"
   1946	            )
   1947	
   1948	    output_dir = Path(output_dir)
@@ -2070,7 +2070,7 @@ them to values with linear fits on the tick positions.
   2038	            df = df.reindex(cols, axis=1)
   2039	            sheet = unique_sheet(sheet_key)
   2040	            if df.empty:
-  2041	                pd.DataFrame([{"note": "nessun dato estratto"}]).to_excel(wr, sheet_name=sheet, index=False)
+  2041	                pd.DataFrame([{"note": "no data extracted"}]).to_excel(wr, sheet_name=sheet, index=False)
   2042	            else:
   2043	                df.to_excel(wr, sheet_name=sheet, index=False)
   2044	
@@ -2116,21 +2116,21 @@ them to values with linear fits on the tick positions.
   2084	
   2085	def main_cli():
   2086	    parser = argparse.ArgumentParser(
-  2087	        description="Estrae i grafici da un report HTML e li salva in un Excel unico."
+  2087	        description="Extracts the charts of a MEOS HTML report and saves them in a single Excel file."
   2088	    )
   2089	    parser.add_argument(
   2090	        "path",
   2091	        nargs="?",
   2092	        default=Path("."),
   2093	        type=Path,
-  2094	        help="File HTML o directory contenente l'HTML (default: cartella corrente)",
+  2094	        help="HTML file or folder containing the HTML report (default: current folder)",
   2095	    )
   2096	    parser.add_argument(
   2097	        "-o",
   2098	        "--output-dir",
   2099	        default=Path("."),
   2100	        type=Path,
-  2101	        help="Directory in cui salvare l'Excel (default: cartella corrente)",
+  2101	        help="Folder where the Excel file is saved (default: current folder)",
   2102	    )
   2103	    args = parser.parse_args()
   2104	
@@ -2143,7 +2143,7 @@ them to values with linear fits on the tick positions.
   2111	            html_path = html_path / DEFAULT_HTML
   2112	
   2113	    out_path = process_html(html_path, args.output_dir)
-  2114	    logging.info("Salvato: %s", out_path)
+  2114	    logging.info("Saved: %s", out_path)
   2115	
   2116	
   2117	if __name__ == "__main__":
@@ -3113,7 +3113,7 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
     92	    for folder in folders:
     93	        found = html_reports(folder)
     94	        if not found:
-    95	            logging.warning("Nessun file HTML in %s", folder)
+    95	            logging.warning("No HTML file in %s", folder)
     96	        reports.extend(found)
     97	
     98	    summary = {"saved": [], "errors": [], "stopped": False, "extra": [], "total": len(reports)}
@@ -3122,7 +3122,7 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
    101	    for i, report in enumerate(reports):
    102	        if stop_event is not None and stop_event.is_set():
    103	            summary["stopped"] = True
-   104	            logging.warning("Elaborazione interrotta dall'utente")
+   104	            logging.warning("Processing stopped by the user")
    105	            break
    106	        if progress:
    107	            progress(i, len(reports), report)
@@ -3138,13 +3138,13 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
    117	                generate_individual_plots=make_individual_plots,
    118	            )
    119	            if out in summary["saved"]:
-   120	                logging.warning("%s ha la stessa orbita di un report precedente: %s sovrascritto", report.name, out.name)
-   121	            logging.info("Salvato: %s", out)
+   120	                logging.warning("%s has the same orbit as a previous report: %s overwritten", report.name, out.name)
+   121	            logging.info("Saved: %s", out)
    122	            summary["saved"].append(out)
    123	        except Exception:
    124	            # Keep going: one broken report must not discard the rest
    125	            # of the batch (statistics and plots included).
-   126	            logging.exception("Errore durante l'elaborazione di %s", report)
+   126	            logging.exception("Error while processing %s", report)
    127	            summary["errors"].append(report)
    128	
    129	    if progress:
@@ -3156,7 +3156,7 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
    135	            pd.DataFrame(stats_rows, columns=["Orbit Number", "Unlocks"]).to_excel(stats_path, index=False)
    136	        else:
    137	            pd.DataFrame([{"Orbit Number": "N/A", "Unlocks": 0}]).to_excel(stats_path, index=False)
-   138	        logging.info("Salvate statistiche: %s", stats_path)
+   138	        logging.info("Saved statistics: %s", stats_path)
    139	        summary["extra"].append(stats_path)
    140	
    141	    if selected_plots and summary["saved"]:
@@ -3167,24 +3167,24 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
    146	        plot_index = output_dir / "polar_plots_index.xlsx"
    147	        if plot_rows:
    148	            pd.DataFrame(plot_rows).to_excel(plot_index, index=False)
-   149	            logging.info("Salvato indice plot polari: %s (%d plot)", plot_index, len(plot_rows))
+   149	            logging.info("Saved polar plot index: %s (%d plots)", plot_index, len(plot_rows))
    150	            summary["extra"].append(plot_index)
    151	        else:
    152	            logging.warning(
-   153	                "Plot polari richiesti ma nessuno generato: controllare i warning nel log."
+   153	                "Polar plots requested but none generated: check the warnings in the log."
    154	            )
    155	
    156	    if multi_orbit and summary["saved"] and not summary["stopped"]:
-   157	        logging.info("Analisi multi-orbita sugli Excel in %s…", output_dir)
+   157	        logging.info("Multi-orbit analysis of the Excel files in %s…", output_dir)
    158	        try:
    159	            result = run_analysis(output_dir, output_dir / DEFAULT_OUTPUT_NAME)
    160	            logging.info(
-   161	                "Salvata analisi multi-orbita: %s (%d orbite, %d gruppi)",
+   161	                "Saved multi-orbit analysis: %s (%d orbits, %d groups)",
    162	                result["output"], len(result["orbits"]), result["groups"],
    163	            )
    164	            summary["extra"].append(result["output"])
    165	        except Exception:
-   166	            logging.exception("Analisi multi-orbita non riuscita")
+   166	            logging.exception("Multi-orbit analysis failed")
    167	            summary["errors"].append(Path(DEFAULT_OUTPUT_NAME))
    168	
    169	    return summary
@@ -3395,7 +3395,7 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
    374	        self.per_file_var = BooleanVar(value=settings.get("per_file", True))
    375	        self.combined_var = BooleanVar(value=settings.get("combined", False))
    376	        self.multi_orbit_var = BooleanVar(value=settings.get("multi_orbit", False))
-   377	        self.status_var = StringVar(value="Pronto")
+   377	        self.status_var = StringVar(value="Ready")
    378	        self.count_var = StringVar()
    379	
    380	        self._build()
@@ -3414,7 +3414,7 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
    393	        root.bind("<Escape>", lambda e: self.on_close())
    394	        root.bind("<Control-Return>", lambda e: self.start())
    395	        root.after(100, self._poll_queue)
-   396	        logging.info("MEOS Extract pronto. Aggiungi le cartelle con i report HTML e premi Avvia.")
+   396	        logging.info("MEOS Extract ready. Add the folders with the HTML reports and press Run.")
    397	
    398	    # --- Layout -----------------------------------------------------------
    399	    def _build(self):
@@ -3425,7 +3425,7 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
    404	        ttk.Label(header, text="MEOS Extract", style="HeaderTitle.TLabel").pack(anchor="w")
    405	        ttk.Label(
    406	            header,
-   407	            text="Estrazione dei grafici dai report HTML MEOS in Excel, statistiche di lock, plot polari e analisi multi-orbita",
+   407	            text="Extracts the charts of MEOS HTML reports to Excel, with lock statistics, polar plots and multi-orbit analysis",
    408	            style="HeaderSub.TLabel",
    409	        ).pack(anchor="w", pady=(2, 0))
    410	
@@ -3456,15 +3456,15 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
    435	        self._build_log(content).grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(8, 0))
    436	
    437	    def _build_inputs(self, parent):
-   438	        outer, body, head = card(parent, "Cartelle di input")
+   438	        outer, body, head = card(parent, "Input folders")
    439	        ttk.Label(head, textvariable=self.count_var, style="Muted.TLabel").pack(side="right")
    440	
    441	        tree_frame = ttk.Frame(body, style="Inner.TFrame")
    442	        tree_frame.pack(fill="both", expand=True)
    443	        self.tree = ttk.Treeview(tree_frame, columns=("folder", "reports"), show="headings",
    444	                                 selectmode="extended", height=6)
-   445	        self.tree.heading("folder", text="Cartella", anchor="w")
-   446	        self.tree.heading("reports", text="Report HTML", anchor="center")
+   445	        self.tree.heading("folder", text="Folder", anchor="w")
+   446	        self.tree.heading("reports", text="HTML reports", anchor="center")
    447	        self.tree.column("folder", anchor="w", width=380, stretch=True)
    448	        self.tree.column("reports", anchor="center", width=110, stretch=False)
    449	        self.tree.tag_configure("empty", foreground=DANGER)
@@ -3480,10 +3480,10 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
    459	        btns = ttk.Frame(body, style="Inner.TFrame")
    460	        btns.pack(fill="x", pady=(10, 0))
    461	        for text, cmd in (
-   462	            ("+ Aggiungi cartella", self.add_folder),
-   463	            ("Aggiungi sottocartelle…", self.add_subfolders),
-   464	            ("Rimuovi", self.remove_selected),
-   465	            ("Svuota", self.clear_folders),
+   462	            ("+ Add folder", self.add_folder),
+   463	            ("Add subfolders…", self.add_subfolders),
+   464	            ("Remove", self.remove_selected),
+   465	            ("Clear", self.clear_folders),
    466	        ):
    467	            b = ttk.Button(btns, text=text, command=cmd)
    468	            b.pack(side="left", padx=(0, 6))
@@ -3491,22 +3491,22 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
    470	        return outer
    471	
    472	    def _build_output(self, parent):
-   473	        outer, body, _ = card(parent, "Cartella di output")
+   473	        outer, body, _ = card(parent, "Output folder")
    474	        body.grid_columnconfigure(0, weight=1)
    475	        entry = self.output_entry = ttk.Entry(body, textvariable=self.output_var)
    476	        entry.grid(row=0, column=0, sticky="ew", padx=(0, 6))
-   477	        b_browse = ttk.Button(body, text="Sfoglia…", command=self.select_output)
+   477	        b_browse = ttk.Button(body, text="Browse…", command=self.select_output)
    478	        b_browse.grid(row=0, column=1, padx=(0, 6))
-   479	        b_open = ttk.Button(body, text="Apri", command=self.open_output)
+   479	        b_open = ttk.Button(body, text="Open", command=self.open_output)
    480	        b_open.grid(row=0, column=2)
    481	        self.lockable.extend([entry, b_browse])
    482	        return outer
    483	
    484	    def _build_options(self, parent):
-   485	        outer, body, _ = card(parent, "Opzioni")
+   485	        outer, body, _ = card(parent, "Options")
    486	
-   487	        ttk.Label(body, text="STATISTICHE", style="Section.TLabel").pack(anchor="w")
-   488	        cb = ttk.Checkbutton(body, text="Conta gli unlock del demodulatore (1→0→1)",
+   487	        ttk.Label(body, text="STATISTICS", style="Section.TLabel").pack(anchor="w")
+   488	        cb = ttk.Checkbutton(body, text="Count demodulator unlocks (1→0→1)",
    489	                             variable=self.stat_unlock, style="Card.TCheckbutton")
    490	        cb.pack(anchor="w", pady=(4, 0))
    491	        ttk.Label(body, text="→ lock_state_stats.xlsx (Orbit Number, Unlocks)",
@@ -3514,7 +3514,7 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
    493	        self.lockable.append(cb)
    494	
    495	        ttk.Separator(body).pack(fill="x", pady=7)
-   496	        ttk.Label(body, text="PLOT POLARI / 3D  ·  SNR: unlock in viola", style="Section.TLabel").pack(anchor="w")
+   496	        ttk.Label(body, text="POLAR / 3D PLOTS  ·  SNR: unlocks in purple", style="Section.TLabel").pack(anchor="w")
    497	        plots_row = ttk.Frame(body, style="Inner.TFrame")
    498	        plots_row.pack(anchor="w", pady=(4, 0))
    499	        for key, label in PLOT_OPTIONS:
@@ -3524,27 +3524,27 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
    503	            self.lockable.append(cb)
    504	
    505	        ttk.Separator(body).pack(fill="x", pady=7)
-   506	        ttk.Label(body, text="MODALITÀ PLOT", style="Section.TLabel").pack(anchor="w")
+   506	        ttk.Label(body, text="PLOT MODE", style="Section.TLabel").pack(anchor="w")
    507	        self.mode_checks = []
    508	        modes_row = ttk.Frame(body, style="Inner.TFrame")
    509	        modes_row.pack(anchor="w", pady=(4, 0))
-   510	        for text, var in (("Per ogni report", self.per_file_var),
-   511	                          ("Combinato (tutti i report)", self.combined_var)):
+   510	        for text, var in (("One set per report", self.per_file_var),
+   511	                          ("Combined (all reports)", self.combined_var)):
    512	            cb = ttk.Checkbutton(modes_row, text=text, variable=var, style="Card.TCheckbutton")
    513	            cb.pack(side="left", padx=(0, 14))
    514	            self.mode_checks.append(cb)
    515	
    516	        ttk.Separator(body).pack(fill="x", pady=7)
-   517	        ttk.Label(body, text=f"ANALISI MULTI-ORBITA  ·  → {DEFAULT_OUTPUT_NAME}",
+   517	        ttk.Label(body, text=f"MULTI-ORBIT ANALYSIS  ·  → {DEFAULT_OUTPUT_NAME}",
    518	                  style="Section.TLabel").pack(anchor="w")
    519	        multi_row = ttk.Frame(body, style="Inner.TFrame")
    520	        multi_row.pack(fill="x", pady=(4, 0))
-   521	        cb = ttk.Checkbutton(multi_row, text="Dopo l'elaborazione",
+   521	        cb = ttk.Checkbutton(multi_row, text="After processing",
    522	                             variable=self.multi_orbit_var, style="Card.TCheckbutton")
    523	        cb.pack(side="left")
    524	        # Analyse any folder of Excel files already extracted (older runs,
    525	        # other campaigns) without processing HTML reports first.
-   526	        btn = ttk.Button(multi_row, text="Analizza Excel già estratti…", style="Small.TButton",
+   526	        btn = ttk.Button(multi_row, text="Analyse existing Excel files…", style="Small.TButton",
    527	                         command=self.start_analysis)
    528	        btn.pack(side="right")
    529	        self.lockable.extend([cb, btn])
@@ -3554,7 +3554,7 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
    533	        outer = ttk.Frame(parent, style="Card.TFrame", padding=14)
    534	        row = ttk.Frame(outer, style="Inner.TFrame")
    535	        row.pack(fill="x")
-   536	        self.btn_run = ttk.Button(row, text="▶  Avvia elaborazione", style="Accent.TButton", command=self.start)
+   536	        self.btn_run = ttk.Button(row, text="▶  Run", style="Accent.TButton", command=self.start)
    537	        self.btn_run.pack(side="left", fill="x", expand=True)
    538	        self.btn_stop = ttk.Button(row, text="■  Stop", style="Danger.TButton", command=self.stop, state="disabled")
    539	        self.btn_stop.pack(side="left", padx=(8, 0))
@@ -3565,14 +3565,14 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
    544	        status_row.pack(fill="x")
    545	        self.status_label = ttk.Label(status_row, textvariable=self.status_var, style="Status.TLabel")
    546	        self.status_label.pack(side="left", fill="x", expand=True)
-   547	        self.btn_open_out = ttk.Button(status_row, text="Apri risultati", command=self.open_output, state="disabled")
+   547	        self.btn_open_out = ttk.Button(status_row, text="Open results", command=self.open_output, state="disabled")
    548	        self.btn_open_out.pack(side="right")
    549	        return outer
    550	
    551	    def _build_log(self, parent):
    552	        outer, body, head = card(parent, "Log")
-   553	        ttk.Button(head, text="Pulisci", command=self.clear_log).pack(side="right")
-   554	        ttk.Button(head, text="Apri file di log", command=lambda: open_path(LOG_PATH)).pack(side="right", padx=(0, 6))
+   553	        ttk.Button(head, text="Clear", command=self.clear_log).pack(side="right")
+   554	        ttk.Button(head, text="Open log file", command=lambda: open_path(LOG_PATH)).pack(side="right", padx=(0, 6))
    555	
    556	        self.log = Text(body, height=8, bg=LOG_BG, fg=LOG_FG, insertbackground=LOG_FG, relief="flat",
    557	                        borderwidth=0, padx=10, pady=8, font=(self.mono, 9), wrap="none", state="disabled")
@@ -3598,15 +3598,15 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
    577	        folder = str(Path(folder))
    578	        if folder in self._folders():
    579	            if log:
-   580	                logging.info("Cartella già presente: %s", folder)
+   580	                logging.info("Folder already in the list: %s", folder)
    581	            return False
    582	        n = len(html_reports(Path(folder)))
    583	        tags = ["empty"] if n == 0 else []
    584	        if len(self.tree.get_children()) % 2:
    585	            tags.append("odd")
-   586	        self.tree.insert("", "end", iid=folder, values=(self._short_path(folder), n if n else "nessuno"), tags=tags)
+   586	        self.tree.insert("", "end", iid=folder, values=(self._short_path(folder), n if n else "none"), tags=tags)
    587	        if log:
-   588	            logging.info("Aggiunta cartella %s (%d report)", folder, n)
+   588	            logging.info("Added folder %s (%d reports)", folder, n)
    589	        return True
    590	
    591	    def _restripe(self):
@@ -3620,25 +3620,25 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
    599	        folders = self._folders()
    600	        n_reports = sum(len(html_reports(Path(f))) for f in folders)
    601	        self.count_var.set(
-   602	            f"{len(folders)} cartell{'a' if len(folders) == 1 else 'e'} · {n_reports} report"
+   602	            f"{len(folders)} folder{'' if len(folders) == 1 else 's'} · {n_reports} report{'' if n_reports == 1 else 's'}"
    603	        )
    604	
    605	    def add_folder(self):
-   606	        folder = filedialog.askdirectory(title="Seleziona una cartella con report HTML", mustexist=True)
+   606	        folder = filedialog.askdirectory(title="Select a folder with HTML reports", mustexist=True)
    607	        if folder:
    608	            self._add_folder(folder)
    609	            self._update_count()
    610	
    611	    def add_subfolders(self):
-   612	        parent = filedialog.askdirectory(title="Seleziona la cartella padre da scansionare", mustexist=True)
+   612	        parent = filedialog.askdirectory(title="Select the parent folder to scan", mustexist=True)
    613	        if not parent:
    614	            return
    615	        parent = Path(parent)
    616	        candidates = [parent] + sorted(p for p in parent.rglob("*") if p.is_dir())
    617	        added = sum(self._add_folder(p, log=False) for p in candidates if html_reports(p))
-   618	        logging.info("Scansione di %s: aggiunte %d cartelle con report HTML", parent, added)
+   618	        logging.info("Scanned %s: added %d folders with HTML reports", parent, added)
    619	        if not added:
-   620	            logging.warning("Nessuna nuova cartella con report HTML trovata in %s", parent)
+   620	            logging.warning("No new folder with HTML reports found in %s", parent)
    621	        self._restripe()
    622	        self._update_count()
    623	
@@ -3659,7 +3659,7 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
    638	
    639	    # --- Output -------------------------------------------------------------
    640	    def select_output(self):
-   641	        folder = filedialog.askdirectory(title="Seleziona la cartella di output")
+   641	        folder = filedialog.askdirectory(title="Select the output folder")
    642	        if folder:
    643	            self.output_var.set(str(Path(folder)))
    644	            self.output_entry.xview_moveto(1.0)
@@ -3669,7 +3669,7 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
    648	        if out and Path(out).is_dir():
    649	            open_path(Path(out))
    650	        else:
-   651	            logging.warning("La cartella di output non esiste ancora")
+   651	            logging.warning("The output folder does not exist yet")
    652	
    653	    def _update_plot_mode_state(self):
    654	        any_plot = any(v.get() for v in self.plot_vars.values())
@@ -3699,13 +3699,13 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
    678	        multi_orbit = self.multi_orbit_var.get()
    679	
    680	        if not folders:
-   681	            messagebox.showwarning("MEOS Extract", "Aggiungi almeno una cartella con report HTML.")
+   681	            messagebox.showwarning("MEOS Extract", "Add at least one folder with HTML reports.")
    682	            return
    683	        if not output:
-   684	            messagebox.showwarning("MEOS Extract", "Seleziona la cartella di output.")
+   684	            messagebox.showwarning("MEOS Extract", "Select the output folder.")
    685	            return
    686	        if selected_plots and not (per_file or combined):
-   687	            messagebox.showwarning("MEOS Extract", "Seleziona almeno una modalità plot (per report e/o combinato).")
+   687	            messagebox.showwarning("MEOS Extract", "Select at least one plot mode (per report and/or combined).")
    688	            return
    689	
    690	        self._save_settings()
@@ -3714,10 +3714,10 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
    693	        self.progress.configure(value=0, maximum=1)
    694	        self.btn_open_out.state(["disabled"])
    695	        self.status_label.configure(style="Status.TLabel")
-   696	        self.status_var.set("Avvio…")
+   696	        self.status_var.set("Starting…")
    697	        self.started_at = time.monotonic()
    698	        self._set_running(True)
-   699	        logging.info("Avvio elaborazione: %d cartelle → %s", len(folders), output)
+   699	        logging.info("Processing %d folders → %s", len(folders), output)
    700	
    701	        def progress(done, total, report):
    702	            self.queue.put(("progress", done, total, report))
@@ -3728,7 +3728,7 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
    707	                                    per_file, combined, progress=progress, stop_event=self.stop_event,
    708	                                    multi_orbit=multi_orbit)
    709	            except Exception as exc:
-   710	                logging.exception("Errore inatteso")
+   710	                logging.exception("Unexpected error")
    711	                summary = {"saved": [], "errors": [], "stopped": False, "extra": [], "total": 0, "fatal": str(exc)}
    712	            self.queue.put(("done", summary))
    713	
@@ -3741,35 +3741,35 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
    720	            return
    721	        initial = self.output_var.get().strip() or None
    722	        folder = filedialog.askdirectory(
-   723	            title="Seleziona la cartella con gli Excel estratti da MEOS", mustexist=True, initialdir=initial,
+   723	            title="Select the folder with the Excel files extracted by MEOS Extract", mustexist=True, initialdir=initial,
    724	        )
    725	        if not folder:
    726	            return
    727	        folder = Path(folder)
    728	        if not any(folder.glob("*.xls*")):
-   729	            messagebox.showwarning("MEOS Extract", f"Nessun file Excel in {folder}.")
+   729	            messagebox.showwarning("MEOS Extract", f"No Excel file in {folder}.")
    730	            return
    731	
    732	        self._save_settings()
    733	        self.results_dir = folder
    734	        self.btn_open_out.state(["disabled"])
    735	        self.status_label.configure(style="Status.TLabel")
-   736	        self.status_var.set(f"Analisi multi-orbita di {folder.name}…")
+   736	        self.status_var.set(f"Multi-orbit analysis of {folder.name}…")
    737	        self.started_at = time.monotonic()
    738	        self._set_running(True)
    739	        self.btn_stop.state(["disabled"])  # a single analysis step cannot be interrupted
    740	        self.progress.configure(mode="indeterminate")
    741	        self.progress.start(12)
-   742	        logging.info("Analisi multi-orbita degli Excel in %s", folder)
+   742	        logging.info("Multi-orbit analysis of the Excel files in %s", folder)
    743	
    744	        def work():
    745	            try:
    746	                result, error = run_analysis(folder, folder / DEFAULT_OUTPUT_NAME), None
    747	            except ValueError as exc:
    748	                logging.error("%s", exc)
-   749	                result, error = None, "nessun Excel MEOS valido"
+   749	                result, error = None, "no MEOS Excel files"
    750	            except Exception as exc:
-   751	                logging.exception("Analisi multi-orbita non riuscita")
+   751	                logging.exception("Multi-orbit analysis failed")
    752	                result, error = None, str(exc)
    753	            self.queue.put(("analysis_done", result, error))
    754	
@@ -3783,125 +3783,126 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
    762	        elapsed = time.monotonic() - (self.started_at or time.monotonic())
    763	        if error:
    764	            self.status_label.configure(style="StatusErr.TLabel")
-   765	            self.status_var.set(f"Analisi fallita: {error}")
+   765	            self.status_var.set(f"Analysis failed: {error}")
    766	            return
    767	        self.status_label.configure(style="StatusOk.TLabel")
    768	        self.status_var.set(
-   769	            f"✓ Analisi: {len(result['orbits'])} orbite, {result['groups']} gruppi ({elapsed:.0f}s)"
+   769	            f"✓ Analysis: {len(result['orbits'])} orbits, {result['groups']} groups ({elapsed:.0f}s)"
    770	        )
-   771	        logging.info("Salvata analisi multi-orbita: %s", result["output"])
+   771	        logging.info("Saved multi-orbit analysis: %s", result["output"])
    772	        self.btn_open_out.state(["!disabled"])
    773	
    774	    def stop(self):
    775	        if self._running():
    776	            self.stop_event.set()
    777	            self.btn_stop.state(["disabled"])
-   778	            self.status_var.set("Interruzione dopo il report corrente…")
+   778	            self.status_var.set("Stopping after the current report…")
    779	
    780	    def _finish(self, summary):
    781	        self._set_running(False)
    782	        elapsed = time.monotonic() - (self.started_at or time.monotonic())
    783	        saved, errors = len(set(summary["saved"])), len(summary["errors"])
-   784	        if summary.get("fatal"):
-   785	            self.status_label.configure(style="StatusErr.TLabel")
-   786	            self.status_var.set(f"Errore: {summary['fatal']}")
-   787	        elif summary["stopped"]:
-   788	            self.status_label.configure(style="StatusErr.TLabel")
-   789	            self.status_var.set(f"Interrotto · {saved} Excel creati in {elapsed:.0f}s")
-   790	        elif errors:
-   791	            self.status_label.configure(style="StatusErr.TLabel")
-   792	            self.status_var.set(f"Completato con {errors} errori · {saved} Excel creati in {elapsed:.0f}s")
-   793	        else:
-   794	            self.status_label.configure(style="StatusOk.TLabel")
-   795	            self.status_var.set(f"✓ Completato · {saved} Excel creati in {elapsed:.0f}s")
-   796	        self.progress.configure(value=self.progress["maximum"])
-   797	        logging.info("Completato: %d Excel creati, %d errori", saved, errors)
-   798	        if saved:
-   799	            self.btn_open_out.state(["!disabled"])
-   800	
-   801	    # --- Queue / log -------------------------------------------------------
-   802	    def _poll_queue(self):
-   803	        try:
-   804	            while True:
-   805	                msg = self.queue.get_nowait()
-   806	                kind = msg[0]
-   807	                if kind == "log":
-   808	                    self._append_log(msg[1], msg[2])
-   809	                elif kind == "progress":
-   810	                    _, done, total, report = msg
-   811	                    self.progress.configure(maximum=max(total, 1), value=done)
-   812	                    if report is not None:
-   813	                        self.status_var.set(f"Report {done + 1} di {total} · {Path(report).name}")
-   814	                elif kind == "done":
-   815	                    self._finish(msg[1])
-   816	                elif kind == "analysis_done":
-   817	                    self._finish_analysis(msg[1], msg[2])
-   818	        except queue.Empty:
-   819	            pass
-   820	        self.root.after(100, self._poll_queue)
-   821	
-   822	    def _append_log(self, levelno, text):
-   823	        if levelno >= logging.ERROR:
-   824	            tag = "ERROR"
-   825	        elif levelno >= logging.WARNING:
-   826	            tag = "WARNING"
-   827	        elif levelno < logging.INFO:
-   828	            tag = "DEBUG"
-   829	        elif "Salvat" in text or "Completato" in text:
-   830	            tag = "SUCCESS"
-   831	        else:
-   832	            tag = None
-   833	        at_end = self.log.yview()[1] >= 0.999
-   834	        self.log.configure(state="normal")
-   835	        self.log.insert("end", text + "\n", tag)
-   836	        lines = int(self.log.index("end-1c").split(".")[0])
-   837	        if lines > 5000:
-   838	            self.log.delete("1.0", f"{lines - 5000}.0")
-   839	        self.log.configure(state="disabled")
-   840	        if at_end:
-   841	            self.log.see("end")
-   842	
-   843	    def clear_log(self):
-   844	        self.log.configure(state="normal")
-   845	        self.log.delete("1.0", "end")
-   846	        self.log.configure(state="disabled")
-   847	
-   848	    # --- Settings / close ---------------------------------------------------
-   849	    def _save_settings(self):
-   850	        save_settings({
-   851	            "folders": self._folders(),
-   852	            "output": self.output_var.get().strip(),
-   853	            "stat_unlock": self.stat_unlock.get(),
-   854	            "plots": [k for k, _ in PLOT_OPTIONS if self.plot_vars[k].get()],
-   855	            "per_file": self.per_file_var.get(),
-   856	            "combined": self.combined_var.get(),
-   857	            "multi_orbit": self.multi_orbit_var.get(),
-   858	        })
-   859	
-   860	    def on_close(self):
-   861	        if self._running():
-   862	            if not messagebox.askyesno("MEOS Extract", "Elaborazione in corso. Uscire comunque?"):
-   863	                return
-   864	            self.stop_event.set()
-   865	        self._save_settings()
-   866	        self.root.destroy()
-   867	
+   784	        files = f"{saved} Excel file{'' if saved == 1 else 's'}"
+   785	        if summary.get("fatal"):
+   786	            self.status_label.configure(style="StatusErr.TLabel")
+   787	            self.status_var.set(f"Error: {summary['fatal']}")
+   788	        elif summary["stopped"]:
+   789	            self.status_label.configure(style="StatusErr.TLabel")
+   790	            self.status_var.set(f"Stopped · {files} in {elapsed:.0f}s")
+   791	        elif errors:
+   792	            self.status_label.configure(style="StatusErr.TLabel")
+   793	            self.status_var.set(f"Done with {errors} error{'' if errors == 1 else 's'} · {files} in {elapsed:.0f}s")
+   794	        else:
+   795	            self.status_label.configure(style="StatusOk.TLabel")
+   796	            self.status_var.set(f"✓ Done · {files} in {elapsed:.0f}s")
+   797	        self.progress.configure(value=self.progress["maximum"])
+   798	        logging.info("Done: %s created, %d error(s)", files, errors)
+   799	        if saved:
+   800	            self.btn_open_out.state(["!disabled"])
+   801	
+   802	    # --- Queue / log -------------------------------------------------------
+   803	    def _poll_queue(self):
+   804	        try:
+   805	            while True:
+   806	                msg = self.queue.get_nowait()
+   807	                kind = msg[0]
+   808	                if kind == "log":
+   809	                    self._append_log(msg[1], msg[2])
+   810	                elif kind == "progress":
+   811	                    _, done, total, report = msg
+   812	                    self.progress.configure(maximum=max(total, 1), value=done)
+   813	                    if report is not None:
+   814	                        self.status_var.set(f"Report {done + 1} of {total} · {Path(report).name}")
+   815	                elif kind == "done":
+   816	                    self._finish(msg[1])
+   817	                elif kind == "analysis_done":
+   818	                    self._finish_analysis(msg[1], msg[2])
+   819	        except queue.Empty:
+   820	            pass
+   821	        self.root.after(100, self._poll_queue)
+   822	
+   823	    def _append_log(self, levelno, text):
+   824	        if levelno >= logging.ERROR:
+   825	            tag = "ERROR"
+   826	        elif levelno >= logging.WARNING:
+   827	            tag = "WARNING"
+   828	        elif levelno < logging.INFO:
+   829	            tag = "DEBUG"
+   830	        elif "Saved" in text or "Done" in text:
+   831	            tag = "SUCCESS"
+   832	        else:
+   833	            tag = None
+   834	        at_end = self.log.yview()[1] >= 0.999
+   835	        self.log.configure(state="normal")
+   836	        self.log.insert("end", text + "\n", tag)
+   837	        lines = int(self.log.index("end-1c").split(".")[0])
+   838	        if lines > 5000:
+   839	            self.log.delete("1.0", f"{lines - 5000}.0")
+   840	        self.log.configure(state="disabled")
+   841	        if at_end:
+   842	            self.log.see("end")
+   843	
+   844	    def clear_log(self):
+   845	        self.log.configure(state="normal")
+   846	        self.log.delete("1.0", "end")
+   847	        self.log.configure(state="disabled")
+   848	
+   849	    # --- Settings / close ---------------------------------------------------
+   850	    def _save_settings(self):
+   851	        save_settings({
+   852	            "folders": self._folders(),
+   853	            "output": self.output_var.get().strip(),
+   854	            "stat_unlock": self.stat_unlock.get(),
+   855	            "plots": [k for k, _ in PLOT_OPTIONS if self.plot_vars[k].get()],
+   856	            "per_file": self.per_file_var.get(),
+   857	            "combined": self.combined_var.get(),
+   858	            "multi_orbit": self.multi_orbit_var.get(),
+   859	        })
+   860	
+   861	    def on_close(self):
+   862	        if self._running():
+   863	            if not messagebox.askyesno("MEOS Extract", "Processing is running. Quit anyway?"):
+   864	                return
+   865	            self.stop_event.set()
+   866	        self._save_settings()
+   867	        self.root.destroy()
    868	
-   869	def main():
-   870	    # License validation removed
-   871	    if sys.platform.startswith("win"):
-   872	        try:  # crisp text on high-DPI Windows displays
-   873	            import ctypes
-   874	            ctypes.windll.shcore.SetProcessDpiAwareness(1)
-   875	        except Exception:
-   876	            pass
-   877	    root = Tk()
-   878	    App(root)
-   879	    root.mainloop()
-   880	
+   869	
+   870	def main():
+   871	    # License validation removed
+   872	    if sys.platform.startswith("win"):
+   873	        try:  # crisp text on high-DPI Windows displays
+   874	            import ctypes
+   875	            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+   876	        except Exception:
+   877	            pass
+   878	    root = Tk()
+   879	    App(root)
+   880	    root.mainloop()
    881	
-   882	if __name__ == "__main__":
-   883	    main()
+   882	
+   883	if __name__ == "__main__":
+   884	    main()
 ```
 
 ### Explanation
@@ -3926,9 +3927,9 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
 - **Lines 354-396 `__init__`:** Window setup, Tk variables restored from the saved settings, layout, log handler and the 100 ms queue poll.
 - **Lines 399-435 `_build`:** Header plus a two-column grid: inputs and output on the left, options and run panel on the right, log at the bottom.
 - **Lines 437-470 `_build_inputs`:** Treeview of input folders (full path as item id, shortened path and report count shown; folders without reports in red) and its buttons; Delete/BackSpace remove, double-click opens.
-- **Lines 472-482 `_build_output`:** Output folder entry with *Sfoglia…* and *Apri*.
-- **Lines 484-530 `_build_options`:** Statistics, polar/3D plot metrics, plot modes and the multi-orbit section (*Dopo l'elaborazione* checkbox and *Analizza Excel già estratti…* button).
-- **Lines 532-549 `_build_run`:** *Avvia elaborazione*, *Stop*, progress bar, status line and *Apri risultati*.
+- **Lines 472-482 `_build_output`:** Output folder entry with *Browse…* and *Open*.
+- **Lines 484-530 `_build_options`:** Statistics, polar/3D plot metrics, plot modes and the multi-orbit section (*After processing* checkbox and *Analyse existing Excel files…* button).
+- **Lines 532-549 `_build_run`:** *Run*, *Stop*, progress bar, status line and *Open results*.
 - **Lines 551-566 `_build_log`:** Dark log panel with colour tags per level.
 - **Lines 569-570 `_folders`** to **Lines 634-637 `_open_tree_item`:** Input list management: add one folder, scan a parent folder for subfolders with reports, remove, clear, zebra striping and the counter in the card header.
 - **Lines 640-644 `select_output`**, **Lines 646-651 `open_output`:** Choose and open the output (or last results) folder.
@@ -3938,11 +3939,11 @@ Relevant Python concepts: `pd.merge_asof` for nearest-time joins, `Timedelta` ar
 - **Lines 717-756 `start_analysis`:** Multi-orbit analysis of any folder of already extracted Excel files, in a worker thread with an indeterminate progress bar.
 - **Lines 758-772 `_finish_analysis`:** Status and results button after that analysis.
 - **Lines 774-778 `stop`:** Asks the worker to stop after the current report.
-- **Lines 780-799 `_finish`:** Final status (completed, with errors, stopped) and elapsed time.
-- **Lines 802-820 `_poll_queue`:** Runs on the Tk thread every 100 ms: appends log lines, updates the progress bar, handles the completion messages.
-- **Lines 822-841 `_append_log`:** Inserts a log line with its colour (errors red, warnings yellow, saved files green), keeps at most 5000 lines and auto-scrolls only when already at the bottom.
-- **Lines 843-846 `clear_log`**, **Lines 849-858 `_save_settings`**, **Lines 860-866 `on_close`:** Log clearing, settings persistence, and confirmation before closing while a batch is running.
-- **Lines 869-879 `main`:** High-DPI awareness on Windows, then creates the window and starts the Tk main loop.
+- **Lines 780-800 `_finish`:** Final status (completed, with errors, stopped) and elapsed time.
+- **Lines 803-821 `_poll_queue`:** Runs on the Tk thread every 100 ms: appends log lines, updates the progress bar, handles the completion messages.
+- **Lines 823-842 `_append_log`:** Inserts a log line with its colour (errors red, warnings yellow, saved files green), keeps at most 5000 lines and auto-scrolls only when already at the bottom.
+- **Lines 844-847 `clear_log`**, **Lines 850-859 `_save_settings`**, **Lines 861-867 `on_close`:** Log clearing, settings persistence, and confirmation before closing while a batch is running.
+- **Lines 870-880 `main`:** High-DPI awareness on Windows, then creates the window and starts the Tk main loop.
 
 Key data structures: Tk variables (`StringVar`, `BooleanVar`) bound to the widgets, the treeview item ids (folder paths), the queue of `("log" | "progress" | "done" | "analysis_done", ...)` messages, the summary dict returned by `run_batch`.
 

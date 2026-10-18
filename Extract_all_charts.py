@@ -1942,7 +1942,7 @@ def process_html(
             html = alt
         else:
             raise FileNotFoundError(
-                f"File HTML non trovato: {html_path} (cwd) o {alt} (script dir)"
+                f"HTML file not found: {html_path} (cwd) or {alt} (script dir)"
             )
 
     output_dir = Path(output_dir)
@@ -2038,7 +2038,7 @@ def process_html(
             df = df.reindex(cols, axis=1)
             sheet = unique_sheet(sheet_key)
             if df.empty:
-                pd.DataFrame([{"note": "nessun dato estratto"}]).to_excel(wr, sheet_name=sheet, index=False)
+                pd.DataFrame([{"note": "no data extracted"}]).to_excel(wr, sheet_name=sheet, index=False)
             else:
                 df.to_excel(wr, sheet_name=sheet, index=False)
 
@@ -2084,21 +2084,21 @@ def process_html(
 
 def main_cli():
     parser = argparse.ArgumentParser(
-        description="Estrae i grafici da un report HTML e li salva in un Excel unico."
+        description="Extracts the charts of a MEOS HTML report and saves them in a single Excel file."
     )
     parser.add_argument(
         "path",
         nargs="?",
         default=Path("."),
         type=Path,
-        help="File HTML o directory contenente l'HTML (default: cartella corrente)",
+        help="HTML file or folder containing the HTML report (default: current folder)",
     )
     parser.add_argument(
         "-o",
         "--output-dir",
         default=Path("."),
         type=Path,
-        help="Directory in cui salvare l'Excel (default: cartella corrente)",
+        help="Folder where the Excel file is saved (default: current folder)",
     )
     args = parser.parse_args()
 
@@ -2111,7 +2111,7 @@ def main_cli():
             html_path = html_path / DEFAULT_HTML
 
     out_path = process_html(html_path, args.output_dir)
-    logging.info("Salvato: %s", out_path)
+    logging.info("Saved: %s", out_path)
 
 
 if __name__ == "__main__":
