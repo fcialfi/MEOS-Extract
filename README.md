@@ -22,32 +22,31 @@ pip install beautifulsoup4 pandas numpy openpyxl
 
 ## Interfaccia grafica
 
-Un'interfaccia Tkinter è disponibile per elaborare più cartelle.
+Avvio:
+```bash
+python gui_app.py
+```
 
-1. Avviare con:
-   ```bash
-   python gui_app.py
-   ```
-2. Utilizzare il pulsante **Aggiungi cartella** per selezionare le cartelle contenenti `report.html`.
-3. Selezionare la cartella di destinazione con **Seleziona output**.
-4. (Opzionale) Abilitare le opzioni nel riquadro **Statistics**:
-   - `demodulator_lock_state`: conta gli eventi di unlock interni al pass (pattern stabile `1→0→1`).
-   - `Polar plot Input Level`, `Polar plot Eb/No`, `Polar plot SNR`: genera grafici polari/3D a colori rispetto ad azimuth/elevation; nel plot SNR gli eventuali campioni con `demodulator_lock_state = 0` vengono evidenziati in viola anche nei plot complessivi.
-5. Scegliere la modalità dei plot:
-   - `one set per file`: genera i plot separati per ciascun report elaborato.
-   - `one combined set for all files`: genera anche un solo plot per parametro selezionato, aggregando i dati di tutti i report elaborati.
-   - Le due opzioni sono selezionabili insieme.
-6. Premere **Run** per generare gli Excel; ogni file salvato verrà segnalato.
-7. Se è abilitata la statistica lock, viene creato `lock_state_stats.xlsx` (solo colonne `Orbit Number` e `Unlocks`).
-8. Se sono abilitati i plot, vengono creati PNG polari **e 3D sferici (cupola del cielo con antenna al centro)** e, se `plotly` è disponibile, anche versioni HTML interattive con hover che mostrano orbita, azimuth, elevation e valore della metrica. Viene inoltre salvato un indice `polar_plots_index.xlsx`.
-9. La GUI richiede `tkinter`. Se non è già presente, installarlo come indicato nella sezione *Dipendenze*.
+1. **Cartelle di input**: *+ Aggiungi cartella* aggiunge una cartella con i report `*.html`;
+   *Aggiungi sottocartelle…* scansiona una cartella padre e aggiunge tutte le sottocartelle che contengono report.
+   Per ogni cartella viene mostrato il numero di report trovati (in rosso se nessuno).
+   *Rimuovi* (o tasto Canc) e *Svuota* gestiscono la lista; doppio clic apre la cartella.
+2. **Cartella di output**: *Sfoglia…* per sceglierla, *Apri* per aprirla nel file manager.
+3. **Opzioni** (facoltative):
+   - *Conta gli unlock del demodulatore*: conta gli eventi di unlock interni al pass (pattern stabile `1→0→1`) e crea `lock_state_stats.xlsx` (colonne `Orbit Number` e `Unlocks`).
+   - *Plot polari / 3D* per Input Level, Eb/N0 e Signal/Noise Ratio: grafici polari e 3D sferici (cupola del cielo con antenna al centro) colorati rispetto ad azimuth/elevation; nel plot SNR i campioni con `demodulator_lock_state = 0` sono evidenziati in viola. Se `plotly` è installato vengono create anche versioni HTML interattive con hover (orbita, azimuth, elevation, valore). Viene salvato un indice `polar_plots_index.xlsx`.
+   - *Modalità plot*: un set per ogni report e/o un set combinato per tutti i report.
+4. **Avvia elaborazione** (o Ctrl+Invio): l'elaborazione gira in background, con barra di avanzamento e stato; *Stop* interrompe dopo il report corrente. Un report con errori viene segnalato e saltato senza fermare gli altri. A fine elaborazione *Apri risultati* apre la cartella di output.
+
+Il log è mostrato a colori nella finestra (avvisi in giallo, errori in rosso) ed è salvato anche in `gui_app.log` nella cartella dello script.
+Cartelle e opzioni vengono ricordate tra un avvio e l'altro (`~/.meos_extract_gui.json`).
+La GUI richiede `tkinter` (vedi *Dipendenze*).
 
 Note sui dati estratti:
 - L'asse tempo è ricavato dalle etichette orarie del grafico (HH:MM), quindi `t_sec_rel` è in secondi da *Start time* ed è coerente tra tutte le sezioni.
 - I grafici di stato (es. FEP Lock State: Idle/Search/Check/Lock/...) hanno come valore l'indice del livello dal basso (0, 1, 2, ...) e una colonna aggiuntiva `<sezione>_state` con il nome dello stato; per `demodulator_lock_state` resta 0 = unlocked, 1 = locked.
 - Per i grafici con più serie viene estratta una sola curva (quella con più punti nell'area del grafico).
 
-I log dell'applicazione sono salvati nel file `gui_app.log` nella stessa directory dello script. Se il file non è scrivibile, i messaggi vengono mostrati solo in console.
 
 ## File di licenza
 
