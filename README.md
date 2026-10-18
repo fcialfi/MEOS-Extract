@@ -36,7 +36,8 @@ python gui_app.py
    - *Conta gli unlock del demodulatore*: conta gli eventi di unlock interni al pass (pattern stabile `1→0→1`) e crea `lock_state_stats.xlsx` (colonne `Orbit Number` e `Unlocks`).
    - *Plot polari / 3D* per Input Level, Eb/N0 e Signal/Noise Ratio: grafici polari e 3D sferici (cupola del cielo con antenna al centro) colorati rispetto ad azimuth/elevation; nel plot SNR i campioni con `demodulator_lock_state = 0` sono evidenziati in viola. Se `plotly` è installato vengono create anche versioni HTML interattive con hover (orbita, azimuth, elevation, valore). Viene salvato un indice `polar_plots_index.xlsx`.
    - *Modalità plot*: un set per ogni report e/o un set combinato per tutti i report.
-   - *Analisi multi-orbita*: a fine elaborazione crea `meos_processed.xlsx` nella cartella di output usando **tutti** gli Excel MEOS presenti, anche quelli di esecuzioni precedenti (vedi *Analisi multi-orbita* sotto).
+   - *Analisi multi-orbita → Dopo l'elaborazione*: a fine elaborazione crea `meos_processed.xlsx` nella cartella di output usando **tutti** gli Excel MEOS presenti, anche quelli di esecuzioni precedenti (vedi *Analisi multi-orbita* sotto).
+   - *Analizza Excel già estratti…*: esegue subito l'analisi multi-orbita su una cartella qualsiasi di Excel già estratti (vecchie campagne, file ricevuti da altri), senza elaborare report HTML; `meos_processed.xlsx` viene salvato in quella cartella.
 4. **Avvia elaborazione** (o Ctrl+Invio): l'elaborazione gira in background, con barra di avanzamento e stato; *Stop* interrompe dopo il report corrente. Un report con errori viene segnalato e saltato senza fermare gli altri. A fine elaborazione *Apri risultati* apre la cartella di output.
 
 Il log è mostrato a colori nella finestra (avvisi in giallo, errori in rosso) ed è salvato anche in `gui_app.log` nella cartella dello script.
