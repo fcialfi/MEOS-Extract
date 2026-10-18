@@ -25,6 +25,7 @@ from tkinter import font as tkfont
 from tkinter import ttk
 
 from Extract_all_charts import process_html, generate_combined_polar_plot_artifacts
+from report_analysis import run_analysis, DEFAULT_OUTPUT_NAME
 import pandas as pd
 
 
@@ -78,10 +79,12 @@ def html_reports(folder: Path):
 
 def run_batch(folders, output_dir: Path, selected_stats, selected_plots,
               make_individual_plots=True, make_combined_plots=False,
-              progress=None, stop_event=None):
+              progress=None, stop_event=None, multi_orbit=False):
     """Process every HTML report in *folders* and write the summary files.
 
     ``progress(done, total, report)`` is called before each report.
+    With *multi_orbit* the multi-orbit analysis (report_analysis) is run on
+    all the MEOS Excel files in *output_dir*, previous runs included.
     Returns a summary dict (saved files, errors, stopped flag, extra outputs).
     """
     output_dir = Path(output_dir)
@@ -149,6 +152,19 @@ def run_batch(folders, output_dir: Path, selected_stats, selected_plots,
             logging.warning(
                 "Plot polari richiesti ma nessuno generato: controllare i warning nel log."
             )
+
+    if multi_orbit and summary["saved"] and not summary["stopped"]:
+        logging.info("Analisi multi-orbita sugli Excel in %s…", output_dir)
+        try:
+            result = run_analysis(output_dir, output_dir / DEFAULT_OUTPUT_NAME)
+            logging.info(
+                "Salvata analisi multi-orbita: %s (%d orbite, %d gruppi)",
+                result["output"], len(result["orbits"]), result["groups"],
+            )
+            summary["extra"].append(result["output"])
+        except Exception:
+            logging.exception("Analisi multi-orbita non riuscita")
+            summary["errors"].append(Path(DEFAULT_OUTPUT_NAME))
 
     return summary
 
@@ -345,8 +361,8 @@ class App:
         self.mono = pick_mono_family(root)
 
         root.title("MEOS Extract")
-        root.geometry("1120x800")
-        root.minsize(960, 700)
+        root.geometry("1120x820")
+        root.minsize(960, 740)
 
         settings = load_settings()
         self.output_var = StringVar(value=settings.get("output", ""))
@@ -354,6 +370,7 @@ class App:
         self.plot_vars = {key: BooleanVar(value=key in settings.get("plots", [])) for key, _ in PLOT_OPTIONS}
         self.per_file_var = BooleanVar(value=settings.get("per_file", True))
         self.combined_var = BooleanVar(value=settings.get("combined", False))
+        self.multi_orbit_var = BooleanVar(value=settings.get("multi_orbit", False))
         self.status_var = StringVar(value="Pronto")
         self.count_var = StringVar()
 
@@ -384,7 +401,7 @@ class App:
         ttk.Label(header, text="MEOS Extract", style="HeaderTitle.TLabel").pack(anchor="w")
         ttk.Label(
             header,
-            text="Estrazione dei grafici dai report HTML MEOS in Excel, statistiche di lock e plot polari",
+            text="Estrazione dei grafici dai report HTML MEOS in Excel, statistiche di lock, plot polari e analisi multi-orbita",
             style="HeaderSub.TLabel",
         ).pack(anchor="w", pady=(2, 0))
 
@@ -392,7 +409,7 @@ class App:
         content.pack(fill="both", expand=True)
         content.grid_columnconfigure(0, weight=3, uniform="col")
         content.grid_columnconfigure(1, weight=2, uniform="col")
-        content.grid_rowconfigure(0, weight=3, minsize=470)
+        content.grid_rowconfigure(0, weight=3, minsize=510)
         content.grid_rowconfigure(1, weight=1, minsize=150)
 
         # Left column: inputs + output
@@ -420,7 +437,8 @@ class App:
 
         tree_frame = ttk.Frame(body, style="Inner.TFrame")
         tree_frame.pack(fill="both", expand=True)
-        self.tree = ttk.Treeview(tree_frame, columns=("folder", "reports"), show="headings", selectmode="extended")
+        self.tree = ttk.Treeview(tree_frame, columns=("folder", "reports"), show="headings",
+                                 selectmode="extended", height=6)
         self.tree.heading("folder", text="Cartella", anchor="w")
         self.tree.heading("reports", text="Report HTML", anchor="center")
         self.tree.column("folder", anchor="w", width=380, stretch=True)
@@ -471,8 +489,8 @@ class App:
                   style="Muted.TLabel").pack(anchor="w", padx=(24, 0))
         self.lockable.append(cb)
 
-        ttk.Separator(body).pack(fill="x", pady=10)
-        ttk.Label(body, text="PLOT POLARI / 3D", style="Section.TLabel").pack(anchor="w")
+        ttk.Separator(body).pack(fill="x", pady=7)
+        ttk.Label(body, text="PLOT POLARI / 3D  ·  SNR: unlock in viola", style="Section.TLabel").pack(anchor="w")
         plots_row = ttk.Frame(body, style="Inner.TFrame")
         plots_row.pack(anchor="w", pady=(4, 0))
         for key, label in PLOT_OPTIONS:
@@ -480,17 +498,26 @@ class App:
                                  command=self._update_plot_mode_state)
             cb.pack(side="left", padx=(0, 14))
             self.lockable.append(cb)
-        ttk.Label(body, text="SNR: i campioni unlocked sono evidenziati in viola",
-                  style="Muted.TLabel").pack(anchor="w", pady=(2, 0))
 
-        ttk.Separator(body).pack(fill="x", pady=10)
+        ttk.Separator(body).pack(fill="x", pady=7)
         ttk.Label(body, text="MODALITÀ PLOT", style="Section.TLabel").pack(anchor="w")
         self.mode_checks = []
-        for text, var in (("Un set per ogni report", self.per_file_var),
-                          ("Un set combinato per tutti i report", self.combined_var)):
-            cb = ttk.Checkbutton(body, text=text, variable=var, style="Card.TCheckbutton")
-            cb.pack(anchor="w", pady=(2, 0))
+        modes_row = ttk.Frame(body, style="Inner.TFrame")
+        modes_row.pack(anchor="w", pady=(4, 0))
+        for text, var in (("Per ogni report", self.per_file_var),
+                          ("Combinato (tutti i report)", self.combined_var)):
+            cb = ttk.Checkbutton(modes_row, text=text, variable=var, style="Card.TCheckbutton")
+            cb.pack(side="left", padx=(0, 14))
             self.mode_checks.append(cb)
+
+        ttk.Separator(body).pack(fill="x", pady=7)
+        ttk.Label(body, text="ANALISI MULTI-ORBITA", style="Section.TLabel").pack(anchor="w")
+        cb = ttk.Checkbutton(body, text="SNR vs elevazione per gruppi (ciclo di 9 giorni)",
+                             variable=self.multi_orbit_var, style="Card.TCheckbutton")
+        cb.pack(anchor="w", pady=(4, 0))
+        ttk.Label(body, text=f"→ {DEFAULT_OUTPUT_NAME} (tutti gli Excel in output)",
+                  style="Muted.TLabel").pack(anchor="w", padx=(24, 0))
+        self.lockable.append(cb)
         return outer
 
     def _build_run(self, parent):
@@ -639,6 +666,7 @@ class App:
         selected_stats = ["demodulator_lock_state"] if self.stat_unlock.get() else []
         selected_plots = [k for k, _ in PLOT_OPTIONS if self.plot_vars[k].get()]
         per_file, combined = self.per_file_var.get(), self.combined_var.get()
+        multi_orbit = self.multi_orbit_var.get()
 
         if not folders:
             messagebox.showwarning("MEOS Extract", "Aggiungi almeno una cartella con report HTML.")
@@ -666,7 +694,8 @@ class App:
         def work():
             try:
                 summary = run_batch(folders, Path(output), selected_stats, selected_plots,
-                                    per_file, combined, progress=progress, stop_event=self.stop_event)
+                                    per_file, combined, progress=progress, stop_event=self.stop_event,
+                                    multi_orbit=multi_orbit)
             except Exception as exc:
                 logging.exception("Errore inatteso")
                 summary = {"saved": [], "errors": [], "stopped": False, "extra": [], "total": 0, "fatal": str(exc)}
@@ -756,6 +785,7 @@ class App:
             "plots": [k for k, _ in PLOT_OPTIONS if self.plot_vars[k].get()],
             "per_file": self.per_file_var.get(),
             "combined": self.combined_var.get(),
+            "multi_orbit": self.multi_orbit_var.get(),
         })
 
     def on_close(self):

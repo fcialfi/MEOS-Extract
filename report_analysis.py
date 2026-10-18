@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
+"""Multi-orbit SNR analysis of the Excel files produced by MEOS-Extract.
+
+Groups passes by ground-track repeat cycle and writes, per group, the
+SNR/azimuth/elevation of every orbit, ascending/descending SNR vs
+elevation charts and an az/el-matched SNR table. Usable from the command
+line or through :func:`run_analysis` (the GUI calls it after extraction).
+"""
 import argparse
+import logging
 import math
 import re
 from pathlib import Path
@@ -11,6 +19,10 @@ from openpyxl.chart import ScatterChart, Series, Reference
 from openpyxl.chart.series import SeriesLabel
 from openpyxl.styles import Alignment
 from openpyxl.utils.dataframe import dataframe_to_rows
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_OUTPUT_NAME = "meos_processed.xlsx"
 
 
 def _open_excel(path: Path) -> pd.ExcelFile:
@@ -77,14 +89,14 @@ def _find_series(path: Path, headers: Dict[str, List[str]], key: str) -> Tuple[s
             f"Available worksheets: {', '.join(headers) or 'None'}."
         )
     if len(matches) > 1:
-        print(f"Warning: several candidates for '{key}' in {path.name}: {matches}; using {matches[0]}.")
+        logger.warning("Several candidates for '%s' in %s: %s; using %s.", key, path.name, matches, matches[0])
     return matches[0]
 
 
 def _load_series(path: Path, excel: pd.ExcelFile, sheet: str, column: str, key: str) -> pd.DataFrame:
     df = pd.read_excel(excel, sheet_name=sheet)
     if df.empty or column not in df.columns or TIME_COL not in df.columns:
-        print(f"Warning: sheet '{sheet}' in {path.name} has no '{column}' data; skipping data.")
+        logger.warning("Sheet '%s' in %s has no '%s' data; skipping data.", sheet, path.name, column)
         return pd.DataFrame(columns=[TIME_COL, key])
     data = df[[TIME_COL, column]].rename(columns={column: key})
     data[TIME_COL] = pd.to_datetime(data[TIME_COL], errors="coerce", utc=True)
@@ -138,9 +150,9 @@ def _trim_final_high_elevation(
         return frame.iloc[0:0].copy()
     last_low = int(low[-1])
     if last_low < len(elevation) // 2:
-        print(
-            f"Warning: orbit {frame['orbit'].iloc[0]} ends above {threshold} deg elevation; "
-            "trailing samples not trimmed."
+        logger.warning(
+            "Orbit %s ends above %s deg elevation; trailing samples not trimmed.",
+            frame["orbit"].iloc[0], threshold,
         )
         return frame
     return frame.iloc[: last_low + 1].copy()
@@ -467,93 +479,62 @@ def _frames_from_existing_output(output_path: Path) -> List[Tuple[pd.DataFrame, 
     return items
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Process MEOS Extract Excel files and consolidate "
-            "UTC time, SNR, azimuth, and elevation."
-        )
-    )
-    parser.add_argument(
-        "folder",
-        nargs="?",
-        default=".",
-        help="Folder containing MEOS Extract Excel files.",
-    )
-    parser.add_argument(
-        "-o",
-        "--output",
-        default="meos_processed.xlsx",
-        help="Output Excel file path.",
-    )
-    parser.add_argument(
-        "--azimuth-tolerance",
-        type=float,
-        default=0.1,
-        help="Tolerance (degrees) for matching azimuth values between orbits.",
-    )
-    parser.add_argument(
-        "--elevation-tolerance",
-        type=float,
-        default=0.1,
-        help="Tolerance (degrees) for matching elevation values between orbits.",
-    )
-    parser.add_argument(
-        "--repeat-days",
-        type=float,
-        default=9.0,
-        help="Ground-track repeat cycle in days used to group passes (default: 9).",
-    )
-    parser.add_argument(
-        "--group-tolerance-min",
-        type=float,
-        default=30.0,
-        help="Max difference (minutes) within the repeat cycle for passes of the same group.",
-    )
-    parser.add_argument(
-        "--replace",
-        action="store_true",
-        help="Ignore an existing output file instead of adding its orbits to the new one.",
-    )
-    args = parser.parse_args()
+def run_analysis(
+    folder,
+    output=None,
+    azimuth_tolerance: float = 0.1,
+    elevation_tolerance: float = 0.1,
+    repeat_days: float = 9.0,
+    group_tolerance_min: float = 30.0,
+    replace: bool = False,
+) -> Dict[str, object]:
+    """Analyse every MEOS Extract workbook in *folder* and write *output*.
 
-    folder = Path(args.folder).resolve()
-    if not folder.exists() or not folder.is_dir():
-        raise SystemExit(f"Folder not found: {folder}")
+    *output* defaults to ``meos_processed.xlsx`` inside *folder*. Orbits
+    already in an existing output are kept unless *replace* is true.
+    Returns a summary (output path, orbits, groups, rows, skipped files).
+    Raises ``ValueError`` when no usable workbook is found.
+    """
+    folder = Path(folder).resolve()
+    if not folder.is_dir():
+        raise ValueError(f"Folder not found: {folder}")
 
-    output_path = Path(args.output).resolve()
+    output_path = Path(output).resolve() if output else folder / DEFAULT_OUTPUT_NAME
     excel_files = [
         *folder.glob("*.xlsx"),
         *folder.glob("*.xls"),
         *folder.glob("*.xlsm"),
     ]
-    excel_files = [path for path in excel_files if path.resolve() != output_path]
+    excel_files = [
+        path for path in excel_files
+        if path.resolve() != output_path and not path.name.startswith("~$")  # Excel lock files
+    ]
     if not excel_files:
-        raise SystemExit(f"No Excel files found in {folder}")
+        raise ValueError(f"No Excel files found in {folder}")
 
     processed: Dict[int, Tuple[pd.DataFrame, pd.Timestamp]] = {}
     skipped: List[str] = []
     for path in sorted(excel_files):
-        print(f"Processing Excel file: {path.name}")
+        logger.info("Analysing %s", path.name)
         try:
             frame = _process_file(path)
             start_time = _extract_start_time(path)
         except ValueError as exc:
             # Other workbooks in the folder (statistics, plot index, ...)
             # are not MEOS Extract exports: skip them instead of aborting.
-            print(f"Warning: skipping {path.name}: {exc}")
+            logger.info("Skipped %s (not a MEOS Extract export): %s", path.name, exc)
             skipped.append(path.name)
             continue
         if frame.empty:
-            print(f"Warning: skipping {path.name}: no SNR samples matched with azimuth/elevation.")
+            logger.warning("Skipped %s: no SNR samples matched with azimuth/elevation.", path.name)
             skipped.append(path.name)
             continue
         orbit = int(frame["orbit"].iloc[0])
         if orbit in processed:
-            print(f"Warning: orbit {orbit} found in more than one file; using {path.name}.")
+            logger.warning("Orbit %s found in more than one file; using %s.", orbit, path.name)
         processed[orbit] = (frame, start_time)
 
-    if output_path.exists() and not args.replace:
+    if output_path.exists() and not replace:
         kept = 0
         for frame, start_time in _frames_from_existing_output(output_path):
             orbit = int(frame["orbit"].iloc[0])
@@ -561,15 +542,15 @@ def main() -> int:
                 processed[orbit] = (frame, start_time)
                 kept += 1
         if kept:
-            print(f"Kept {kept} orbit(s) from existing {output_path.name}")
+            logger.info("Kept %d orbit(s) from existing %s", kept, output_path.name)
 
     if not processed:
-        raise SystemExit(f"No usable MEOS Extract files found in {folder}")
+        raise ValueError(f"No usable MEOS Extract files found in {folder}")
 
     groups = _group_by_repeat_cycle(
         list(processed.values()),
-        pd.Timedelta(days=args.repeat_days),
-        pd.Timedelta(minutes=args.group_tolerance_min),
+        pd.Timedelta(days=repeat_days),
+        pd.Timedelta(minutes=group_tolerance_min),
     )
 
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
@@ -633,8 +614,8 @@ def main() -> int:
             frames_only = [frame for frame, _ in group_items]
             correlation_frame = _build_correlation_table(
                 frames_only,
-                args.azimuth_tolerance,
-                args.elevation_tolerance,
+                azimuth_tolerance,
+                elevation_tolerance,
             )
             if not correlation_frame.empty:
                 data_end_row = 2 + output_frame.shape[0]
@@ -687,11 +668,82 @@ def main() -> int:
                 worksheet.add_chart(chart, chart_anchor)
 
     total_rows = sum(len(frame) for frame, _ in processed.values())
-    print(
-        f"Saved {len(processed)} orbit(s), {total_rows} rows, {len(groups)} group(s) to {output_path}"
+    logger.info(
+        "Saved %d orbit(s), %d rows, %d group(s) to %s", len(processed), total_rows, len(groups), output_path
     )
     if skipped:
-        print(f"Skipped {len(skipped)} file(s): {', '.join(skipped)}")
+        logger.info("Skipped %d file(s): %s", len(skipped), ", ".join(skipped))
+    return {
+        "output": output_path,
+        "orbits": sorted(processed),
+        "groups": len(groups),
+        "rows": total_rows,
+        "skipped": skipped,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Multi-orbit SNR analysis of MEOS Extract Excel files: groups passes by "
+            "ground-track repeat cycle and charts SNR vs elevation."
+        )
+    )
+    parser.add_argument(
+        "folder",
+        nargs="?",
+        default=".",
+        help="Folder containing MEOS Extract Excel files.",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        default=DEFAULT_OUTPUT_NAME,
+        help="Output Excel file path.",
+    )
+    parser.add_argument(
+        "--azimuth-tolerance",
+        type=float,
+        default=0.1,
+        help="Tolerance (degrees) for matching azimuth values between orbits.",
+    )
+    parser.add_argument(
+        "--elevation-tolerance",
+        type=float,
+        default=0.1,
+        help="Tolerance (degrees) for matching elevation values between orbits.",
+    )
+    parser.add_argument(
+        "--repeat-days",
+        type=float,
+        default=9.0,
+        help="Ground-track repeat cycle in days used to group passes (default: 9).",
+    )
+    parser.add_argument(
+        "--group-tolerance-min",
+        type=float,
+        default=30.0,
+        help="Max difference (minutes) within the repeat cycle for passes of the same group.",
+    )
+    parser.add_argument(
+        "--replace",
+        action="store_true",
+        help="Ignore an existing output file instead of adding its orbits to the new one.",
+    )
+    args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    try:
+        run_analysis(
+            args.folder,
+            args.output,
+            azimuth_tolerance=args.azimuth_tolerance,
+            elevation_tolerance=args.elevation_tolerance,
+            repeat_days=args.repeat_days,
+            group_tolerance_min=args.group_tolerance_min,
+            replace=args.replace,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc))
     return 0
 
 
