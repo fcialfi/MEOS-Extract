@@ -92,7 +92,7 @@ def run_batch(folders, output_dir: Path, selected_stats, selected_plots,
     for folder in folders:
         found = html_reports(folder)
         if not found:
-            logging.warning("Nessun file HTML in %s", folder)
+            logging.warning("No HTML file in %s", folder)
         reports.extend(found)
 
     summary = {"saved": [], "errors": [], "stopped": False, "extra": [], "total": len(reports)}
@@ -101,7 +101,7 @@ def run_batch(folders, output_dir: Path, selected_stats, selected_plots,
     for i, report in enumerate(reports):
         if stop_event is not None and stop_event.is_set():
             summary["stopped"] = True
-            logging.warning("Elaborazione interrotta dall'utente")
+            logging.warning("Processing stopped by the user")
             break
         if progress:
             progress(i, len(reports), report)
@@ -117,13 +117,13 @@ def run_batch(folders, output_dir: Path, selected_stats, selected_plots,
                 generate_individual_plots=make_individual_plots,
             )
             if out in summary["saved"]:
-                logging.warning("%s ha la stessa orbita di un report precedente: %s sovrascritto", report.name, out.name)
-            logging.info("Salvato: %s", out)
+                logging.warning("%s has the same orbit as a previous report: %s overwritten", report.name, out.name)
+            logging.info("Saved: %s", out)
             summary["saved"].append(out)
         except Exception:
             # Keep going: one broken report must not discard the rest
             # of the batch (statistics and plots included).
-            logging.exception("Errore durante l'elaborazione di %s", report)
+            logging.exception("Error while processing %s", report)
             summary["errors"].append(report)
 
     if progress:
@@ -135,7 +135,7 @@ def run_batch(folders, output_dir: Path, selected_stats, selected_plots,
             pd.DataFrame(stats_rows, columns=["Orbit Number", "Unlocks"]).to_excel(stats_path, index=False)
         else:
             pd.DataFrame([{"Orbit Number": "N/A", "Unlocks": 0}]).to_excel(stats_path, index=False)
-        logging.info("Salvate statistiche: %s", stats_path)
+        logging.info("Saved statistics: %s", stats_path)
         summary["extra"].append(stats_path)
 
     if selected_plots and summary["saved"]:
@@ -146,24 +146,24 @@ def run_batch(folders, output_dir: Path, selected_stats, selected_plots,
         plot_index = output_dir / "polar_plots_index.xlsx"
         if plot_rows:
             pd.DataFrame(plot_rows).to_excel(plot_index, index=False)
-            logging.info("Salvato indice plot polari: %s (%d plot)", plot_index, len(plot_rows))
+            logging.info("Saved polar plot index: %s (%d plots)", plot_index, len(plot_rows))
             summary["extra"].append(plot_index)
         else:
             logging.warning(
-                "Plot polari richiesti ma nessuno generato: controllare i warning nel log."
+                "Polar plots requested but none generated: check the warnings in the log."
             )
 
     if multi_orbit and summary["saved"] and not summary["stopped"]:
-        logging.info("Analisi multi-orbita sugli Excel in %s…", output_dir)
+        logging.info("Multi-orbit analysis of the Excel files in %s…", output_dir)
         try:
             result = run_analysis(output_dir, output_dir / DEFAULT_OUTPUT_NAME)
             logging.info(
-                "Salvata analisi multi-orbita: %s (%d orbite, %d gruppi)",
+                "Saved multi-orbit analysis: %s (%d orbits, %d groups)",
                 result["output"], len(result["orbits"]), result["groups"],
             )
             summary["extra"].append(result["output"])
         except Exception:
-            logging.exception("Analisi multi-orbita non riuscita")
+            logging.exception("Multi-orbit analysis failed")
             summary["errors"].append(Path(DEFAULT_OUTPUT_NAME))
 
     return summary
@@ -374,7 +374,7 @@ class App:
         self.per_file_var = BooleanVar(value=settings.get("per_file", True))
         self.combined_var = BooleanVar(value=settings.get("combined", False))
         self.multi_orbit_var = BooleanVar(value=settings.get("multi_orbit", False))
-        self.status_var = StringVar(value="Pronto")
+        self.status_var = StringVar(value="Ready")
         self.count_var = StringVar()
 
         self._build()
@@ -393,7 +393,7 @@ class App:
         root.bind("<Escape>", lambda e: self.on_close())
         root.bind("<Control-Return>", lambda e: self.start())
         root.after(100, self._poll_queue)
-        logging.info("MEOS Extract pronto. Aggiungi le cartelle con i report HTML e premi Avvia.")
+        logging.info("MEOS Extract ready. Add the folders with the HTML reports and press Run.")
 
     # --- Layout -----------------------------------------------------------
     def _build(self):
@@ -404,7 +404,7 @@ class App:
         ttk.Label(header, text="MEOS Extract", style="HeaderTitle.TLabel").pack(anchor="w")
         ttk.Label(
             header,
-            text="Estrazione dei grafici dai report HTML MEOS in Excel, statistiche di lock, plot polari e analisi multi-orbita",
+            text="Extracts the charts of MEOS HTML reports to Excel, with lock statistics, polar plots and multi-orbit analysis",
             style="HeaderSub.TLabel",
         ).pack(anchor="w", pady=(2, 0))
 
@@ -435,15 +435,15 @@ class App:
         self._build_log(content).grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(8, 0))
 
     def _build_inputs(self, parent):
-        outer, body, head = card(parent, "Cartelle di input")
+        outer, body, head = card(parent, "Input folders")
         ttk.Label(head, textvariable=self.count_var, style="Muted.TLabel").pack(side="right")
 
         tree_frame = ttk.Frame(body, style="Inner.TFrame")
         tree_frame.pack(fill="both", expand=True)
         self.tree = ttk.Treeview(tree_frame, columns=("folder", "reports"), show="headings",
                                  selectmode="extended", height=6)
-        self.tree.heading("folder", text="Cartella", anchor="w")
-        self.tree.heading("reports", text="Report HTML", anchor="center")
+        self.tree.heading("folder", text="Folder", anchor="w")
+        self.tree.heading("reports", text="HTML reports", anchor="center")
         self.tree.column("folder", anchor="w", width=380, stretch=True)
         self.tree.column("reports", anchor="center", width=110, stretch=False)
         self.tree.tag_configure("empty", foreground=DANGER)
@@ -459,10 +459,10 @@ class App:
         btns = ttk.Frame(body, style="Inner.TFrame")
         btns.pack(fill="x", pady=(10, 0))
         for text, cmd in (
-            ("+ Aggiungi cartella", self.add_folder),
-            ("Aggiungi sottocartelle…", self.add_subfolders),
-            ("Rimuovi", self.remove_selected),
-            ("Svuota", self.clear_folders),
+            ("+ Add folder", self.add_folder),
+            ("Add subfolders…", self.add_subfolders),
+            ("Remove", self.remove_selected),
+            ("Clear", self.clear_folders),
         ):
             b = ttk.Button(btns, text=text, command=cmd)
             b.pack(side="left", padx=(0, 6))
@@ -470,22 +470,22 @@ class App:
         return outer
 
     def _build_output(self, parent):
-        outer, body, _ = card(parent, "Cartella di output")
+        outer, body, _ = card(parent, "Output folder")
         body.grid_columnconfigure(0, weight=1)
         entry = self.output_entry = ttk.Entry(body, textvariable=self.output_var)
         entry.grid(row=0, column=0, sticky="ew", padx=(0, 6))
-        b_browse = ttk.Button(body, text="Sfoglia…", command=self.select_output)
+        b_browse = ttk.Button(body, text="Browse…", command=self.select_output)
         b_browse.grid(row=0, column=1, padx=(0, 6))
-        b_open = ttk.Button(body, text="Apri", command=self.open_output)
+        b_open = ttk.Button(body, text="Open", command=self.open_output)
         b_open.grid(row=0, column=2)
         self.lockable.extend([entry, b_browse])
         return outer
 
     def _build_options(self, parent):
-        outer, body, _ = card(parent, "Opzioni")
+        outer, body, _ = card(parent, "Options")
 
-        ttk.Label(body, text="STATISTICHE", style="Section.TLabel").pack(anchor="w")
-        cb = ttk.Checkbutton(body, text="Conta gli unlock del demodulatore (1→0→1)",
+        ttk.Label(body, text="STATISTICS", style="Section.TLabel").pack(anchor="w")
+        cb = ttk.Checkbutton(body, text="Count demodulator unlocks (1→0→1)",
                              variable=self.stat_unlock, style="Card.TCheckbutton")
         cb.pack(anchor="w", pady=(4, 0))
         ttk.Label(body, text="→ lock_state_stats.xlsx (Orbit Number, Unlocks)",
@@ -493,7 +493,7 @@ class App:
         self.lockable.append(cb)
 
         ttk.Separator(body).pack(fill="x", pady=7)
-        ttk.Label(body, text="PLOT POLARI / 3D  ·  SNR: unlock in viola", style="Section.TLabel").pack(anchor="w")
+        ttk.Label(body, text="POLAR / 3D PLOTS  ·  SNR: unlocks in purple", style="Section.TLabel").pack(anchor="w")
         plots_row = ttk.Frame(body, style="Inner.TFrame")
         plots_row.pack(anchor="w", pady=(4, 0))
         for key, label in PLOT_OPTIONS:
@@ -503,27 +503,27 @@ class App:
             self.lockable.append(cb)
 
         ttk.Separator(body).pack(fill="x", pady=7)
-        ttk.Label(body, text="MODALITÀ PLOT", style="Section.TLabel").pack(anchor="w")
+        ttk.Label(body, text="PLOT MODE", style="Section.TLabel").pack(anchor="w")
         self.mode_checks = []
         modes_row = ttk.Frame(body, style="Inner.TFrame")
         modes_row.pack(anchor="w", pady=(4, 0))
-        for text, var in (("Per ogni report", self.per_file_var),
-                          ("Combinato (tutti i report)", self.combined_var)):
+        for text, var in (("One set per report", self.per_file_var),
+                          ("Combined (all reports)", self.combined_var)):
             cb = ttk.Checkbutton(modes_row, text=text, variable=var, style="Card.TCheckbutton")
             cb.pack(side="left", padx=(0, 14))
             self.mode_checks.append(cb)
 
         ttk.Separator(body).pack(fill="x", pady=7)
-        ttk.Label(body, text=f"ANALISI MULTI-ORBITA  ·  → {DEFAULT_OUTPUT_NAME}",
+        ttk.Label(body, text=f"MULTI-ORBIT ANALYSIS  ·  → {DEFAULT_OUTPUT_NAME}",
                   style="Section.TLabel").pack(anchor="w")
         multi_row = ttk.Frame(body, style="Inner.TFrame")
         multi_row.pack(fill="x", pady=(4, 0))
-        cb = ttk.Checkbutton(multi_row, text="Dopo l'elaborazione",
+        cb = ttk.Checkbutton(multi_row, text="After processing",
                              variable=self.multi_orbit_var, style="Card.TCheckbutton")
         cb.pack(side="left")
         # Analyse any folder of Excel files already extracted (older runs,
         # other campaigns) without processing HTML reports first.
-        btn = ttk.Button(multi_row, text="Analizza Excel già estratti…", style="Small.TButton",
+        btn = ttk.Button(multi_row, text="Analyse existing Excel files…", style="Small.TButton",
                          command=self.start_analysis)
         btn.pack(side="right")
         self.lockable.extend([cb, btn])
@@ -533,7 +533,7 @@ class App:
         outer = ttk.Frame(parent, style="Card.TFrame", padding=14)
         row = ttk.Frame(outer, style="Inner.TFrame")
         row.pack(fill="x")
-        self.btn_run = ttk.Button(row, text="▶  Avvia elaborazione", style="Accent.TButton", command=self.start)
+        self.btn_run = ttk.Button(row, text="▶  Run", style="Accent.TButton", command=self.start)
         self.btn_run.pack(side="left", fill="x", expand=True)
         self.btn_stop = ttk.Button(row, text="■  Stop", style="Danger.TButton", command=self.stop, state="disabled")
         self.btn_stop.pack(side="left", padx=(8, 0))
@@ -544,14 +544,14 @@ class App:
         status_row.pack(fill="x")
         self.status_label = ttk.Label(status_row, textvariable=self.status_var, style="Status.TLabel")
         self.status_label.pack(side="left", fill="x", expand=True)
-        self.btn_open_out = ttk.Button(status_row, text="Apri risultati", command=self.open_output, state="disabled")
+        self.btn_open_out = ttk.Button(status_row, text="Open results", command=self.open_output, state="disabled")
         self.btn_open_out.pack(side="right")
         return outer
 
     def _build_log(self, parent):
         outer, body, head = card(parent, "Log")
-        ttk.Button(head, text="Pulisci", command=self.clear_log).pack(side="right")
-        ttk.Button(head, text="Apri file di log", command=lambda: open_path(LOG_PATH)).pack(side="right", padx=(0, 6))
+        ttk.Button(head, text="Clear", command=self.clear_log).pack(side="right")
+        ttk.Button(head, text="Open log file", command=lambda: open_path(LOG_PATH)).pack(side="right", padx=(0, 6))
 
         self.log = Text(body, height=8, bg=LOG_BG, fg=LOG_FG, insertbackground=LOG_FG, relief="flat",
                         borderwidth=0, padx=10, pady=8, font=(self.mono, 9), wrap="none", state="disabled")
@@ -577,15 +577,15 @@ class App:
         folder = str(Path(folder))
         if folder in self._folders():
             if log:
-                logging.info("Cartella già presente: %s", folder)
+                logging.info("Folder already in the list: %s", folder)
             return False
         n = len(html_reports(Path(folder)))
         tags = ["empty"] if n == 0 else []
         if len(self.tree.get_children()) % 2:
             tags.append("odd")
-        self.tree.insert("", "end", iid=folder, values=(self._short_path(folder), n if n else "nessuno"), tags=tags)
+        self.tree.insert("", "end", iid=folder, values=(self._short_path(folder), n if n else "none"), tags=tags)
         if log:
-            logging.info("Aggiunta cartella %s (%d report)", folder, n)
+            logging.info("Added folder %s (%d reports)", folder, n)
         return True
 
     def _restripe(self):
@@ -599,25 +599,25 @@ class App:
         folders = self._folders()
         n_reports = sum(len(html_reports(Path(f))) for f in folders)
         self.count_var.set(
-            f"{len(folders)} cartell{'a' if len(folders) == 1 else 'e'} · {n_reports} report"
+            f"{len(folders)} folder{'' if len(folders) == 1 else 's'} · {n_reports} report{'' if n_reports == 1 else 's'}"
         )
 
     def add_folder(self):
-        folder = filedialog.askdirectory(title="Seleziona una cartella con report HTML", mustexist=True)
+        folder = filedialog.askdirectory(title="Select a folder with HTML reports", mustexist=True)
         if folder:
             self._add_folder(folder)
             self._update_count()
 
     def add_subfolders(self):
-        parent = filedialog.askdirectory(title="Seleziona la cartella padre da scansionare", mustexist=True)
+        parent = filedialog.askdirectory(title="Select the parent folder to scan", mustexist=True)
         if not parent:
             return
         parent = Path(parent)
         candidates = [parent] + sorted(p for p in parent.rglob("*") if p.is_dir())
         added = sum(self._add_folder(p, log=False) for p in candidates if html_reports(p))
-        logging.info("Scansione di %s: aggiunte %d cartelle con report HTML", parent, added)
+        logging.info("Scanned %s: added %d folders with HTML reports", parent, added)
         if not added:
-            logging.warning("Nessuna nuova cartella con report HTML trovata in %s", parent)
+            logging.warning("No new folder with HTML reports found in %s", parent)
         self._restripe()
         self._update_count()
 
@@ -638,7 +638,7 @@ class App:
 
     # --- Output -------------------------------------------------------------
     def select_output(self):
-        folder = filedialog.askdirectory(title="Seleziona la cartella di output")
+        folder = filedialog.askdirectory(title="Select the output folder")
         if folder:
             self.output_var.set(str(Path(folder)))
             self.output_entry.xview_moveto(1.0)
@@ -648,7 +648,7 @@ class App:
         if out and Path(out).is_dir():
             open_path(Path(out))
         else:
-            logging.warning("La cartella di output non esiste ancora")
+            logging.warning("The output folder does not exist yet")
 
     def _update_plot_mode_state(self):
         any_plot = any(v.get() for v in self.plot_vars.values())
@@ -678,13 +678,13 @@ class App:
         multi_orbit = self.multi_orbit_var.get()
 
         if not folders:
-            messagebox.showwarning("MEOS Extract", "Aggiungi almeno una cartella con report HTML.")
+            messagebox.showwarning("MEOS Extract", "Add at least one folder with HTML reports.")
             return
         if not output:
-            messagebox.showwarning("MEOS Extract", "Seleziona la cartella di output.")
+            messagebox.showwarning("MEOS Extract", "Select the output folder.")
             return
         if selected_plots and not (per_file or combined):
-            messagebox.showwarning("MEOS Extract", "Seleziona almeno una modalità plot (per report e/o combinato).")
+            messagebox.showwarning("MEOS Extract", "Select at least one plot mode (per report and/or combined).")
             return
 
         self._save_settings()
@@ -693,10 +693,10 @@ class App:
         self.progress.configure(value=0, maximum=1)
         self.btn_open_out.state(["disabled"])
         self.status_label.configure(style="Status.TLabel")
-        self.status_var.set("Avvio…")
+        self.status_var.set("Starting…")
         self.started_at = time.monotonic()
         self._set_running(True)
-        logging.info("Avvio elaborazione: %d cartelle → %s", len(folders), output)
+        logging.info("Processing %d folders → %s", len(folders), output)
 
         def progress(done, total, report):
             self.queue.put(("progress", done, total, report))
@@ -707,7 +707,7 @@ class App:
                                     per_file, combined, progress=progress, stop_event=self.stop_event,
                                     multi_orbit=multi_orbit)
             except Exception as exc:
-                logging.exception("Errore inatteso")
+                logging.exception("Unexpected error")
                 summary = {"saved": [], "errors": [], "stopped": False, "extra": [], "total": 0, "fatal": str(exc)}
             self.queue.put(("done", summary))
 
@@ -720,35 +720,35 @@ class App:
             return
         initial = self.output_var.get().strip() or None
         folder = filedialog.askdirectory(
-            title="Seleziona la cartella con gli Excel estratti da MEOS", mustexist=True, initialdir=initial,
+            title="Select the folder with the Excel files extracted by MEOS Extract", mustexist=True, initialdir=initial,
         )
         if not folder:
             return
         folder = Path(folder)
         if not any(folder.glob("*.xls*")):
-            messagebox.showwarning("MEOS Extract", f"Nessun file Excel in {folder}.")
+            messagebox.showwarning("MEOS Extract", f"No Excel file in {folder}.")
             return
 
         self._save_settings()
         self.results_dir = folder
         self.btn_open_out.state(["disabled"])
         self.status_label.configure(style="Status.TLabel")
-        self.status_var.set(f"Analisi multi-orbita di {folder.name}…")
+        self.status_var.set(f"Multi-orbit analysis of {folder.name}…")
         self.started_at = time.monotonic()
         self._set_running(True)
         self.btn_stop.state(["disabled"])  # a single analysis step cannot be interrupted
         self.progress.configure(mode="indeterminate")
         self.progress.start(12)
-        logging.info("Analisi multi-orbita degli Excel in %s", folder)
+        logging.info("Multi-orbit analysis of the Excel files in %s", folder)
 
         def work():
             try:
                 result, error = run_analysis(folder, folder / DEFAULT_OUTPUT_NAME), None
             except ValueError as exc:
                 logging.error("%s", exc)
-                result, error = None, "nessun Excel MEOS valido"
+                result, error = None, "no MEOS Excel files"
             except Exception as exc:
-                logging.exception("Analisi multi-orbita non riuscita")
+                logging.exception("Multi-orbit analysis failed")
                 result, error = None, str(exc)
             self.queue.put(("analysis_done", result, error))
 
@@ -762,39 +762,40 @@ class App:
         elapsed = time.monotonic() - (self.started_at or time.monotonic())
         if error:
             self.status_label.configure(style="StatusErr.TLabel")
-            self.status_var.set(f"Analisi fallita: {error}")
+            self.status_var.set(f"Analysis failed: {error}")
             return
         self.status_label.configure(style="StatusOk.TLabel")
         self.status_var.set(
-            f"✓ Analisi: {len(result['orbits'])} orbite, {result['groups']} gruppi ({elapsed:.0f}s)"
+            f"✓ Analysis: {len(result['orbits'])} orbits, {result['groups']} groups ({elapsed:.0f}s)"
         )
-        logging.info("Salvata analisi multi-orbita: %s", result["output"])
+        logging.info("Saved multi-orbit analysis: %s", result["output"])
         self.btn_open_out.state(["!disabled"])
 
     def stop(self):
         if self._running():
             self.stop_event.set()
             self.btn_stop.state(["disabled"])
-            self.status_var.set("Interruzione dopo il report corrente…")
+            self.status_var.set("Stopping after the current report…")
 
     def _finish(self, summary):
         self._set_running(False)
         elapsed = time.monotonic() - (self.started_at or time.monotonic())
         saved, errors = len(set(summary["saved"])), len(summary["errors"])
+        files = f"{saved} Excel file{'' if saved == 1 else 's'}"
         if summary.get("fatal"):
             self.status_label.configure(style="StatusErr.TLabel")
-            self.status_var.set(f"Errore: {summary['fatal']}")
+            self.status_var.set(f"Error: {summary['fatal']}")
         elif summary["stopped"]:
             self.status_label.configure(style="StatusErr.TLabel")
-            self.status_var.set(f"Interrotto · {saved} Excel creati in {elapsed:.0f}s")
+            self.status_var.set(f"Stopped · {files} in {elapsed:.0f}s")
         elif errors:
             self.status_label.configure(style="StatusErr.TLabel")
-            self.status_var.set(f"Completato con {errors} errori · {saved} Excel creati in {elapsed:.0f}s")
+            self.status_var.set(f"Done with {errors} error{'' if errors == 1 else 's'} · {files} in {elapsed:.0f}s")
         else:
             self.status_label.configure(style="StatusOk.TLabel")
-            self.status_var.set(f"✓ Completato · {saved} Excel creati in {elapsed:.0f}s")
+            self.status_var.set(f"✓ Done · {files} in {elapsed:.0f}s")
         self.progress.configure(value=self.progress["maximum"])
-        logging.info("Completato: %d Excel creati, %d errori", saved, errors)
+        logging.info("Done: %s created, %d error(s)", files, errors)
         if saved:
             self.btn_open_out.state(["!disabled"])
 
@@ -810,7 +811,7 @@ class App:
                     _, done, total, report = msg
                     self.progress.configure(maximum=max(total, 1), value=done)
                     if report is not None:
-                        self.status_var.set(f"Report {done + 1} di {total} · {Path(report).name}")
+                        self.status_var.set(f"Report {done + 1} of {total} · {Path(report).name}")
                 elif kind == "done":
                     self._finish(msg[1])
                 elif kind == "analysis_done":
@@ -826,7 +827,7 @@ class App:
             tag = "WARNING"
         elif levelno < logging.INFO:
             tag = "DEBUG"
-        elif "Salvat" in text or "Completato" in text:
+        elif "Saved" in text or "Done" in text:
             tag = "SUCCESS"
         else:
             tag = None
@@ -859,7 +860,7 @@ class App:
 
     def on_close(self):
         if self._running():
-            if not messagebox.askyesno("MEOS Extract", "Elaborazione in corso. Uscire comunque?"):
+            if not messagebox.askyesno("MEOS Extract", "Processing is running. Quit anyway?"):
                 return
             self.stop_event.set()
         self._save_settings()
