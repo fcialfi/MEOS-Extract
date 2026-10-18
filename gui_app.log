@@ -1,0 +1,34 @@
+2026-10-18 12:04:14,090 - INFO - MEOS Extract pronto. Aggiungi le cartelle con i report HTML e premi Avvia.
+2026-10-18 12:04:14,091 - INFO - Aggiunta cartella /tmp/claude-0/-home-user/bf8602db-a385-5801-b214-ec510300a3b9/scratchpad/in (2 report)
+2026-10-18 12:04:14,092 - INFO - Aggiunta cartella /tmp/claude-0/-home-user/bf8602db-a385-5801-b214-ec510300a3b9/scratchpad/home (0 report)
+2026-10-18 12:04:15,075 - INFO - Avvio elaborazione: 2 cartelle → /tmp/claude-0/-home-user/bf8602db-a385-5801-b214-ec510300a3b9/scratchpad/gui_out
+2026-10-18 12:04:15,076 - WARNING - Nessun file HTML in /tmp/claude-0/-home-user/bf8602db-a385-5801-b214-ec510300a3b9/scratchpad/home
+2026-10-18 12:04:16,715 - INFO - Failed to extract font properties from /usr/share/fonts/truetype/noto/NotoColorEmoji.ttf: Non-scalable fonts are not supported
+2026-10-18 12:04:16,806 - INFO - generated new fontManager
+2026-10-18 12:04:19,372 - INFO - Salvato: /tmp/claude-0/-home-user/bf8602db-a385-5801-b214-ec510300a3b9/scratchpad/gui_out/AWS-PFM_orbit_8297.xlsx
+2026-10-18 12:04:22,444 - INFO - Salvato: /tmp/claude-0/-home-user/bf8602db-a385-5801-b214-ec510300a3b9/scratchpad/gui_out/AWS-PFM_orbit_8297.xlsx
+2026-10-18 12:04:22,457 - INFO - Salvate statistiche: /tmp/claude-0/-home-user/bf8602db-a385-5801-b214-ec510300a3b9/scratchpad/gui_out/lock_state_stats.xlsx
+2026-10-18 12:04:23,656 - INFO - Salvato indice plot polari: /tmp/claude-0/-home-user/bf8602db-a385-5801-b214-ec510300a3b9/scratchpad/gui_out/polar_plots_index.xlsx (12 plot)
+2026-10-18 12:04:23,742 - INFO - Completato: 2 Excel creati, 0 errori
+2026-10-18 12:05:06,979 - INFO - MEOS Extract pronto. Aggiungi le cartelle con i report HTML e premi Avvia.
+2026-10-18 12:05:06,980 - INFO - Cartella già presente: /tmp/claude-0/-home-user/bf8602db-a385-5801-b214-ec510300a3b9/scratchpad/in
+2026-10-18 12:05:06,980 - INFO - Cartella già presente: /tmp/claude-0/-home-user/bf8602db-a385-5801-b214-ec510300a3b9/scratchpad/home
+2026-10-18 12:05:07,959 - INFO - Avvio elaborazione: 2 cartelle → /tmp/claude-0/-home-user/bf8602db-a385-5801-b214-ec510300a3b9/scratchpad/gui_out
+2026-10-18 12:05:07,960 - WARNING - Nessun file HTML in /tmp/claude-0/-home-user/bf8602db-a385-5801-b214-ec510300a3b9/scratchpad/home
+2026-10-18 12:05:11,589 - INFO - Salvato: /tmp/claude-0/-home-user/bf8602db-a385-5801-b214-ec510300a3b9/scratchpad/gui_out/AWS-PFM_orbit_8297.xlsx
+2026-10-18 12:05:13,958 - WARNING - web_report_AWS-PFM_8297_meos8_lan.html ha la stessa orbita di un report precedente: AWS-PFM_orbit_8297.xlsx sovrascritto
+2026-10-18 12:05:13,958 - INFO - Salvato: /tmp/claude-0/-home-user/bf8602db-a385-5801-b214-ec510300a3b9/scratchpad/gui_out/AWS-PFM_orbit_8297.xlsx
+2026-10-18 12:05:13,969 - INFO - Salvate statistiche: /tmp/claude-0/-home-user/bf8602db-a385-5801-b214-ec510300a3b9/scratchpad/gui_out/lock_state_stats.xlsx
+2026-10-18 12:05:15,077 - INFO - Salvato indice plot polari: /tmp/claude-0/-home-user/bf8602db-a385-5801-b214-ec510300a3b9/scratchpad/gui_out/polar_plots_index.xlsx (12 plot)
+2026-10-18 12:05:15,158 - INFO - Completato: 2 Excel creati, 0 errori
+2026-10-18 12:05:35,697 - INFO - MEOS Extract pronto. Aggiungi le cartelle con i report HTML e premi Avvia.
+2026-10-18 12:05:35,697 - INFO - Cartella già presente: /tmp/claude-0/-home-user/bf8602db-a385-5801-b214-ec510300a3b9/scratchpad/in
+2026-10-18 12:05:35,698 - INFO - Cartella già presente: /tmp/claude-0/-home-user/bf8602db-a385-5801-b214-ec510300a3b9/scratchpad/home
+2026-10-18 12:05:36,632 - INFO - Avvio elaborazione: 2 cartelle → /tmp/claude-0/-home-user/bf8602db-a385-5801-b214-ec510300a3b9/scratchpad/gui_out
+2026-10-18 12:05:36,633 - WARNING - Nessun file HTML in /tmp/claude-0/-home-user/bf8602db-a385-5801-b214-ec510300a3b9/scratchpad/home
+2026-10-18 12:05:39,737 - INFO - Salvato: /tmp/claude-0/-home-user/bf8602db-a385-5801-b214-ec510300a3b9/scratchpad/gui_out/AWS-PFM_orbit_8297.xlsx
+2026-10-18 12:05:42,202 - WARNING - web_report_AWS-PFM_8297_meos8_lan.html ha la stessa orbita di un report precedente: AWS-PFM_orbit_8297.xlsx sovrascritto
+2026-10-18 12:05:42,202 - INFO - Salvato: /tmp/claude-0/-home-user/bf8602db-a385-5801-b214-ec510300a3b9/scratchpad/gui_out/AWS-PFM_orbit_8297.xlsx
+2026-10-18 12:05:42,220 - INFO - Salvate statistiche: /tmp/claude-0/-home-user/bf8602db-a385-5801-b214-ec510300a3b9/scratchpad/gui_out/lock_state_stats.xlsx
+2026-10-18 12:05:43,424 - INFO - Salvato indice plot polari: /tmp/claude-0/-home-user/bf8602db-a385-5801-b214-ec510300a3b9/scratchpad/gui_out/polar_plots_index.xlsx (12 plot)
+2026-10-18 12:05:43,474 - INFO - Completato: 1 Excel creati, 0 errori
