@@ -4,7 +4,7 @@ license.key
 
 # Bytecode
 __pycache__/
-*/__pycache__/
+*.pyc
 
 # Runtime log written next to gui_app.py
 gui_app.log
